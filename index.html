@@ -298,6 +298,7 @@
     <div>
       <h1>Brooklyn Climate Panel<span> — Tado  Log</span></h1>
       <div class="sub">Room temperature &amp; humidity log — daily min / max / average readout</div>
+      <div class="sub" id="tzNote" style="margin-top:2px;">Times shown in UK local time</div>
     </div>
     <div class="status-pill"><span class="led" id="statusLed"></span><span id="statusText">loading…</span></div>
   </header>
@@ -457,7 +458,9 @@ function addParsedRows(data){
     if (!r.timestamp || r.temperature_c == null || r.humidity_pct == null) continue;
     const ts = new Date(r.timestamp);
     if (isNaN(ts)) continue;
-    const dateKey = r.date || toISODate(ts);
+    // The CSV's own "date" column is a GMT calendar date; recompute it in
+    // Europe/London civil time instead, so BST readings land on the right day.
+    const dateKey = toDateKey(ts);
     const room = r.room || 'Home';
     rows.push({date:dateKey, room, ts, temp:Number(r.temperature_c), hum:Number(r.humidity_pct)});
   }
@@ -480,10 +483,10 @@ async function fetchYearFile(year){
   }
 }
 
-// Makes sure every calendar year spanned by [start, end] has been fetched (repo mode only).
-async function ensureYearsLoaded(start, end){
+// Makes sure every calendar year spanned by [startKey, endKey] has been fetched (repo mode only).
+async function ensureYearsLoaded(startKey, endKey){
   if (dataSource !== 'repo') return;
-  const y0 = start.getFullYear(), y1 = end.getFullYear();
+  const y0 = Number(startKey.slice(0,4)), y1 = Number(endKey.slice(0,4));
   const toFetch = [];
   for (let y = y0; y <= y1; y++) if (!loadedYears.has(y)) toFetch.push(y);
   if (!toFetch.length) return;
@@ -543,7 +546,7 @@ function finishLoad(label){
   fromDateEl.removeAttribute('max');
   toDateEl.removeAttribute('max');
 
-  setPreset('day');
+  setPreset('week');
 }
 
 roomSelect.addEventListener('change', () => { currentRoom = roomSelect.value; render(); });
@@ -558,8 +561,7 @@ document.getElementById('applyRange').addEventListener('click', async () => {
   if (!fromDateEl.value || !toDateEl.value) return;
   activePreset = null;
   updatePresetButtons();
-  let start = startOfDay(new Date(fromDateEl.value + 'T00:00:00'));
-  let end = startOfDay(new Date(toDateEl.value + 'T00:00:00'));
+  let start = fromDateEl.value, end = toDateEl.value;
   if (end < start) { [start, end] = [end, start]; }
   await ensureYearsLoaded(start, end);
   rangeStart = start; rangeEnd = end;
@@ -570,15 +572,15 @@ async function setPreset(name){
   if (!rows.length) return;
   activePreset = name;
   updatePresetButtons();
-  const maxDay = startOfDay(rows[rows.length-1].ts);
+  const maxDay = rows[rows.length-1].date;      // London-date key of the latest reading
   const days = {day:1, week:7, month:30, quarter:91, year:365}[name];
-  const tentativeStart = addDays(maxDay, -(days-1));
+  const tentativeStart = addDaysKey(maxDay, -(days-1));
   await ensureYearsLoaded(tentativeStart, maxDay);
-  const minDay = startOfDay(rows[0].ts);
+  const minDay = rows[0].date;
   rangeStart = tentativeStart < minDay ? minDay : tentativeStart;
   rangeEnd = maxDay;
-  fromDateEl.value = toISODate(rangeStart);
-  toDateEl.value = toISODate(rangeEnd);
+  fromDateEl.value = rangeStart;
+  toDateEl.value = rangeEnd;
   render();
 }
 
@@ -588,19 +590,31 @@ function updatePresetButtons(){
   });
 }
 
-function startOfDay(d){ const n = new Date(d); n.setHours(0,0,0,0); return n; }
-function addDays(d, n){ const r = new Date(d); r.setDate(r.getDate()+n); return r; }
-function toISODate(d){
-  const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0');
-  return `${y}-${m}-${day}`;
+// All calendar-day bucketing and range math is done on "YYYY-MM-DD" keys
+// representing the Europe/London civil date for a given instant — this is
+// what handles the GMT/BST switch correctly, regardless of the viewer's
+// own device timezone setting.
+const londonDateFmt = new Intl.DateTimeFormat('en-CA', {timeZone:'Europe/London', year:'numeric', month:'2-digit', day:'2-digit'});
+const londonTimeFmt = new Intl.DateTimeFormat('en-GB', {timeZone:'Europe/London', day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false});
+const londonZoneFmt = new Intl.DateTimeFormat('en-GB', {timeZone:'Europe/London', timeZoneName:'short'});
+
+function toDateKey(d){ return londonDateFmt.format(d); }               // Date -> "YYYY-MM-DD" (London civil date)
+function formatLondonDateTime(d){ return londonTimeFmt.format(d); }    // Date -> "dd/mm, hh:mm" (London wall-clock)
+function currentLondonZoneAbbrev(){
+  const part = londonZoneFmt.formatToParts(new Date()).find(p => p.type === 'timeZoneName');
+  return part ? part.value : 'UK time';
 }
-function fmtShort(d){ return d.toLocaleDateString(undefined, {month:'2-digit', day:'2-digit'}); }
+// Pure calendar-day arithmetic on keys (safe across DST — never touches an actual instant).
+function addDaysKey(key, n){
+  const d = new Date(key + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0,10);
+}
 function round1(n){ return Math.round(n*10)/10; }
 
 function render(){
   if (!rangeStart || !rangeEnd) return;
-  const endExclusive = addDays(rangeEnd, 1);
-  const filtered = rows.filter(r => r.room === currentRoom && r.ts >= rangeStart && r.ts < endExclusive);
+  const filtered = rows.filter(r => r.room === currentRoom && r.date >= rangeStart && r.date <= rangeEnd);
 
   emptyNote.style.display = filtered.length ? 'none' : 'block';
   document.querySelector('.chart-panel').style.display = filtered.length ? 'block' : 'none';
@@ -670,7 +684,7 @@ function renderChart(filtered, daily){
     tempData = daily.map(d => round1(d.tAvg));
     humData = daily.map(d => round1(d.hAvg));
   } else {
-    labels = filtered.map(r => r.ts.toLocaleString(undefined, {month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'}));
+    labels = filtered.map(r => formatLondonDateTime(r.ts));
     tempData = filtered.map(r => r.temp);
     humData = filtered.map(r => r.hum);
   }
@@ -745,6 +759,7 @@ function renderChart(filtered, daily){
 }
 
 // Kick things off: try to load this repo's own CSV(s) first.
+document.getElementById('tzNote').textContent = `Times shown in UK local time (currently ${currentLondonZoneAbbrev()})`;
 autoLoadFromRepo();
 </script>
 </body>
