@@ -299,18 +299,18 @@
       <h1>Climate <span>Panel</span></h1>
       <div class="sub">Room temperature &amp; humidity log — daily min / max / average readout</div>
     </div>
-    <div class="status-pill"><span class="led" id="statusLed"></span><span id="statusText">no file loaded</span></div>
+    <div class="status-pill"><span class="led" id="statusLed"></span><span id="statusText">loading…</span></div>
   </header>
 
-  <div id="dropzone">
+  <div id="dropzone" style="display:none;">
     <div class="dz-title">Drop CSV here, or click to browse</div>
     <div class="dz-sub">Expects columns: date, room, timestamp, temperature_c, humidity_pct — up to ~20,000 rows</div>
     <input type="file" id="fileInput" accept=".csv,text/csv">
   </div>
 
-  <div class="filebar" id="filebar">
-    <span>Loaded <b id="fileMeta">—</b></span>
-    <a id="loadNew">load a different file</a>
+  <div class="filebar" id="filebar" style="display:flex;">
+    <span id="fileMeta">Looking for data in this repo…</span>
+    <a id="switchSource">upload a different CSV instead</a>
   </div>
 
   <div id="app">
@@ -390,11 +390,14 @@ let rangeStart = null;  // Date (midnight)
 let rangeEnd = null;    // Date (midnight, inclusive day)
 let chart = null;
 let activePreset = null;
+let loadedYears = new Set();   // calendar years already fetched from the repo
+let dataSource = null;         // 'repo' | 'upload'
 
 const dropzone = document.getElementById('dropzone');
 const fileInput = document.getElementById('fileInput');
 const filebar = document.getElementById('filebar');
 const fileMeta = document.getElementById('fileMeta');
+const switchSource = document.getElementById('switchSource');
 const appEl = document.getElementById('app');
 const statusLed = document.getElementById('statusLed');
 const statusText = document.getElementById('statusText');
@@ -408,10 +411,19 @@ dropzone.addEventListener('click', () => fileInput.click());
 ['dragleave','drop'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.remove('drag'); }));
 dropzone.addEventListener('drop', e => { if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
 fileInput.addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
-document.getElementById('loadNew').addEventListener('click', () => {
-  dropzone.style.display='block'; filebar.style.display='none'; appEl.style.display='none';
-  fileInput.value='';
+
+switchSource.addEventListener('click', () => {
+  if (dataSource === 'upload'){
+    autoLoadFromRepo();               // revert to repo data
+  } else if (dropzone.style.display === 'block'){
+    dropzone.style.display = 'none';  // cancel the upload prompt
+    switchSource.textContent = 'upload a different CSV instead';
+  } else {
+    dropzone.style.display = 'block'; // reveal manual upload
+    switchSource.textContent = 'cancel';
+  }
 });
+
 
 function handleFile(file){
   statusText.textContent = 'parsing…';
@@ -420,7 +432,17 @@ function handleFile(file){
     dynamicTyping:true,
     skipEmptyLines:true,
     complete: res => {
-      ingest(res.data, file.name);
+      dataSource = 'upload';
+      loadedYears.clear();
+      rows = [];
+      addParsedRows(res.data);
+      if (!rows.length){
+        statusText.textContent = 'no valid rows found';
+        alert('No valid rows found. Expecting columns: date, room, timestamp, temperature_c, humidity_pct');
+        return;
+      }
+      finishLoad(`Loaded external file — ${file.name}`);
+      switchSource.textContent = 'reload data from repo';
     },
     error: err => {
       statusText.textContent = 'parse error';
@@ -429,42 +451,97 @@ function handleFile(file){
   });
 }
 
-function ingest(data, filename){
-  rows = [];
-  const roomSet = new Set();
+// Parses PapaParse row objects into `rows`, without resetting existing data.
+function addParsedRows(data){
   for (const r of data){
     if (!r.timestamp || r.temperature_c == null || r.humidity_pct == null) continue;
     const ts = new Date(r.timestamp);
     if (isNaN(ts)) continue;
-    const dateKey = r.date || ts.toISOString().slice(0,10);
+    const dateKey = r.date || toISODate(ts);
     const room = r.room || 'Home';
-    roomSet.add(room);
     rows.push({date:dateKey, room, ts, temp:Number(r.temperature_c), hum:Number(r.humidity_pct)});
   }
-  if (!rows.length){
-    statusText.textContent = 'no valid rows found';
-    alert('No valid rows found. Expecting columns: date, room, timestamp, temperature_c, humidity_pct');
+}
+
+// Fetches "{year}_data.csv" from the same folder as this page. Returns true if it had data.
+async function fetchYearFile(year){
+  if (loadedYears.has(year)) return true;
+  try {
+    const resp = await fetch(`${year}_data.csv`, {cache:'no-store'});
+    if (!resp.ok){ loadedYears.add(year); return false; }
+    const text = await resp.text();
+    const parsed = Papa.parse(text, {header:true, dynamicTyping:true, skipEmptyLines:true});
+    addParsedRows(parsed.data);
+    loadedYears.add(year);
+    return true;
+  } catch (e){
+    loadedYears.add(year);
+    return false;
+  }
+}
+
+// Makes sure every calendar year spanned by [start, end] has been fetched (repo mode only).
+async function ensureYearsLoaded(start, end){
+  if (dataSource !== 'repo') return;
+  const y0 = start.getFullYear(), y1 = end.getFullYear();
+  const toFetch = [];
+  for (let y = y0; y <= y1; y++) if (!loadedYears.has(y)) toFetch.push(y);
+  if (!toFetch.length) return;
+  statusText.textContent = `loading ${toFetch.join(', ')}…`;
+  await Promise.all(toFetch.map(fetchYearFile));
+  rows.sort((a,b) => a.ts - b.ts);
+  statusText.textContent = 'live';
+}
+
+// Tries this year's file, then last year's, to find the latest available data on page load.
+async function autoLoadFromRepo(){
+  dropzone.style.display = 'none';
+  switchSource.textContent = 'upload a different CSV instead';
+  appEl.style.display = 'none';
+  filebar.style.display = 'flex';
+  fileMeta.textContent = 'Looking for data in this repo…';
+  statusLed.classList.remove('on');
+  statusText.textContent = 'loading…';
+
+  dataSource = 'repo';
+  loadedYears.clear();
+  rows = [];
+
+  const thisYear = new Date().getFullYear();
+  let found = await fetchYearFile(thisYear);
+  if (!found) found = await fetchYearFile(thisYear - 1);
+
+  if (!found || !rows.length){
+    statusText.textContent = 'no repo data found';
+    fileMeta.textContent = `Could not find ${thisYear}_data.csv next to this page.`;
+    dropzone.style.display = 'block';
+    switchSource.textContent = 'cancel';
+    appEl.style.display = 'none';
     return;
   }
+
+  finishLoad(`Auto-loaded from repo — ${[...loadedYears].filter(y=>rows.some(r=>r.ts.getFullYear()===y)).sort().join(', ')}_data.csv`);
+}
+
+function finishLoad(label){
   rows.sort((a,b) => a.ts - b.ts);
+  const roomSet = new Set(rows.map(r => r.room));
   rooms = [...roomSet];
-  currentRoom = rooms[0];
+  if (!currentRoom || !rooms.includes(currentRoom)) currentRoom = rooms[0];
 
   roomSelect.innerHTML = rooms.map(r => `<option value="${r}">${r}</option>`).join('');
   roomSelect.style.display = rooms.length > 1 ? 'inline-block' : 'none';
   roomSelect.value = currentRoom;
 
-  fileMeta.textContent = `${filename} — ${rows.length.toLocaleString()} rows, ${rooms.length} room${rooms.length>1?'s':''}`;
+  fileMeta.textContent = `${label} — ${rows.length.toLocaleString()} rows, ${rooms.length} room${rooms.length>1?'s':''}`;
   dropzone.style.display = 'none';
   filebar.style.display = 'flex';
   appEl.style.display = 'block';
   statusLed.classList.add('on');
   statusText.textContent = 'live';
 
-  const maxTs = rows[rows.length-1].ts;
-  const minTs = rows[0].ts;
-  fromDateEl.min = toISODate(minTs); fromDateEl.max = toISODate(maxTs);
-  toDateEl.min = toISODate(minTs); toDateEl.max = toISODate(maxTs);
+  fromDateEl.removeAttribute('max');
+  toDateEl.removeAttribute('max');
 
   setPreset('week');
 }
@@ -477,26 +554,29 @@ document.getElementById('presets').addEventListener('click', e => {
   setPreset(btn.dataset.preset);
 });
 
-document.getElementById('applyRange').addEventListener('click', () => {
+document.getElementById('applyRange').addEventListener('click', async () => {
   if (!fromDateEl.value || !toDateEl.value) return;
   activePreset = null;
   updatePresetButtons();
-  rangeStart = startOfDay(new Date(fromDateEl.value + 'T00:00:00'));
-  rangeEnd = startOfDay(new Date(toDateEl.value + 'T00:00:00'));
-  if (rangeEnd < rangeStart) { [rangeStart, rangeEnd] = [rangeEnd, rangeStart]; }
+  let start = startOfDay(new Date(fromDateEl.value + 'T00:00:00'));
+  let end = startOfDay(new Date(toDateEl.value + 'T00:00:00'));
+  if (end < start) { [start, end] = [end, start]; }
+  await ensureYearsLoaded(start, end);
+  rangeStart = start; rangeEnd = end;
   render();
 });
 
-function setPreset(name){
+async function setPreset(name){
   if (!rows.length) return;
   activePreset = name;
   updatePresetButtons();
   const maxDay = startOfDay(rows[rows.length-1].ts);
   const days = {day:1, week:7, month:30, quarter:91, year:365}[name];
-  rangeEnd = maxDay;
-  rangeStart = addDays(maxDay, -(days-1));
+  const tentativeStart = addDays(maxDay, -(days-1));
+  await ensureYearsLoaded(tentativeStart, maxDay);
   const minDay = startOfDay(rows[0].ts);
-  if (rangeStart < minDay) rangeStart = minDay;
+  rangeStart = tentativeStart < minDay ? minDay : tentativeStart;
+  rangeEnd = maxDay;
   fromDateEl.value = toISODate(rangeStart);
   toDateEl.value = toISODate(rangeEnd);
   render();
@@ -663,6 +743,9 @@ function renderChart(filtered, daily){
     }
   });
 }
+
+// Kick things off: try to load this repo's own CSV(s) first.
+autoLoadFromRepo();
 </script>
 </body>
 </html>
