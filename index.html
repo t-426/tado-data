@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Climate Panel — Readings Log</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#16130f;
+    --panel:#211c17;
+    --panel-2:#2a241d;
+    --border:#3a322a;
+    --text:#f3ead9;
+    --muted:#9c9082;
+    --temp:#e85d42;
+    --hum:#4e8fd1;
+    --gold:#c9a24b;
+    --grid: rgba(243,234,217,0.07);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:
+      radial-gradient(ellipse at top, rgba(201,162,75,0.06), transparent 60%),
+      var(--bg);
+    color:var(--text);
+    font-family:'Inter',sans-serif;
+    padding:20px 16px 60px;
+    min-height:100vh;
+  }
+  .wrap{max-width:1000px;margin:0 auto;}
+
+  header{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-end;
+    flex-wrap:wrap;
+    gap:12px;
+    border-bottom:1px solid var(--border);
+    padding-bottom:16px;
+    margin-bottom:20px;
+  }
+  h1{
+    font-family:'Rajdhani',sans-serif;
+    font-weight:700;
+    font-size:30px;
+    letter-spacing:0.02em;
+    margin:0;
+    text-transform:uppercase;
+  }
+  h1 span{color:var(--gold);}
+  .sub{
+    font-size:12.5px;
+    color:var(--muted);
+    margin-top:4px;
+    letter-spacing:0.03em;
+  }
+  .status-pill{
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    color:var(--muted);
+    border:1px solid var(--border);
+    border-radius:100px;
+    padding:6px 12px;
+    display:flex;
+    align-items:center;
+    gap:7px;
+  }
+  .led{width:7px;height:7px;border-radius:50%;background:#5a5044;}
+  .led.on{background:var(--gold);box-shadow:0 0 6px var(--gold);}
+
+  /* Dropzone */
+  #dropzone{
+    border:1.5px dashed var(--border);
+    border-radius:10px;
+    padding:36px 20px;
+    text-align:center;
+    cursor:pointer;
+    transition:border-color .15s, background .15s;
+    background:var(--panel);
+    margin-bottom:22px;
+  }
+  #dropzone:hover, #dropzone.drag{
+    border-color:var(--gold);
+    background:var(--panel-2);
+  }
+  #dropzone .dz-title{
+    font-family:'Rajdhani',sans-serif;
+    font-weight:600;
+    font-size:18px;
+    letter-spacing:0.03em;
+  }
+  #dropzone .dz-sub{
+    font-size:12.5px;
+    color:var(--muted);
+    margin-top:6px;
+  }
+  #fileInput{display:none;}
+
+  .filebar{
+    display:none;
+    align-items:center;
+    justify-content:space-between;
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:10px 14px;
+    margin-bottom:22px;
+    font-family:'JetBrains Mono',monospace;
+    font-size:12px;
+    color:var(--muted);
+  }
+  .filebar b{color:var(--text);font-weight:500;}
+  .filebar a{color:var(--gold);text-decoration:none;cursor:pointer;}
+
+  #app{display:none;}
+
+  /* Controls */
+  .controls{
+    display:flex;
+    flex-wrap:wrap;
+    gap:10px;
+    align-items:center;
+    margin-bottom:20px;
+  }
+  .presets{display:flex;gap:6px;flex-wrap:wrap;}
+  .btn{
+    font-family:'Rajdhani',sans-serif;
+    font-weight:600;
+    font-size:14px;
+    letter-spacing:0.04em;
+    text-transform:uppercase;
+    background:var(--panel);
+    border:1px solid var(--border);
+    color:var(--muted);
+    padding:9px 16px;
+    border-radius:7px;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    gap:7px;
+    transition:all .12s;
+  }
+  .btn:hover{border-color:var(--gold);color:var(--text);}
+  .btn.active{
+    color:var(--bg);
+    background:var(--gold);
+    border-color:var(--gold);
+  }
+  .btn.active .led{background:var(--bg);box-shadow:none;}
+
+  select, input[type=date]{
+    font-family:'JetBrains Mono',monospace;
+    font-size:13px;
+    background:var(--panel);
+    border:1px solid var(--border);
+    color:var(--text);
+    padding:8px 10px;
+    border-radius:7px;
+  }
+  .custom-range{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    margin-left:auto;
+    flex-wrap:wrap;
+  }
+  .custom-range .to{color:var(--muted);font-size:12px;font-family:'JetBrains Mono',monospace;}
+
+  /* Readout cards */
+  .readouts{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+    gap:10px;
+    margin-bottom:20px;
+  }
+  .card{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:9px;
+    padding:14px 16px;
+    position:relative;
+    overflow:hidden;
+  }
+  .card::before{
+    content:'';
+    position:absolute;top:0;left:0;right:0;height:2px;
+  }
+  .card.temp::before{background:var(--temp);}
+  .card.hum::before{background:var(--hum);}
+  .card .label{
+    font-size:10.5px;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+    color:var(--muted);
+    margin-bottom:8px;
+  }
+  .card .value{
+    font-family:'JetBrains Mono',monospace;
+    font-weight:700;
+    font-size:26px;
+    line-height:1;
+  }
+  .card.temp .value{color:var(--temp);text-shadow:0 0 14px rgba(232,93,66,0.35);}
+  .card.hum .value{color:var(--hum);text-shadow:0 0 14px rgba(78,143,209,0.35);}
+  .card .unit{font-size:13px;color:var(--muted);font-weight:400;}
+  .card .minmax{
+    margin-top:8px;
+    font-size:11px;
+    color:var(--muted);
+    font-family:'JetBrains Mono',monospace;
+    display:flex;
+    gap:10px;
+  }
+
+  /* Chart */
+  .chart-panel{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:16px;
+    margin-bottom:20px;
+  }
+  .chart-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:10px;
+    flex-wrap:wrap;
+    gap:6px;
+  }
+  .chart-title{
+    font-family:'Rajdhani',sans-serif;
+    font-weight:600;
+    font-size:15px;
+    letter-spacing:0.03em;
+    text-transform:uppercase;
+    color:var(--muted);
+  }
+  .legend-item{
+    display:inline-flex;align-items:center;gap:5px;
+    font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted);
+    margin-left:14px;
+  }
+  .swatch{width:10px;height:2.5px;border-radius:2px;}
+  #chartCanvasWrap{height:340px;position:relative;}
+
+  /* Table */
+  .table-panel{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:16px;
+  }
+  .table-panel h2{
+    font-family:'Rajdhani',sans-serif;
+    font-size:15px;
+    font-weight:600;
+    letter-spacing:0.03em;
+    text-transform:uppercase;
+    color:var(--muted);
+    margin:0 0 12px;
+  }
+  .table-scroll{max-height:340px;overflow-y:auto;border-top:1px solid var(--border);}
+  table{width:100%;border-collapse:collapse;font-family:'JetBrains Mono',monospace;font-size:12px;}
+  th{
+    position:sticky;top:0;
+    background:var(--panel-2);
+    color:var(--muted);
+    text-align:right;
+    padding:8px 10px;
+    font-weight:500;
+    letter-spacing:0.02em;
+    border-bottom:1px solid var(--border);
+  }
+  th:first-child, td:first-child{text-align:left;}
+  td{padding:7px 10px;text-align:right;border-bottom:1px solid rgba(58,50,42,0.5);color:var(--text);}
+  tr:hover td{background:rgba(201,162,75,0.05);}
+  td.t{color:var(--temp);}
+  td.h{color:var(--hum);}
+
+  .empty-note{color:var(--muted);font-size:12px;text-align:center;padding:30px 0;font-family:'JetBrains Mono',monospace;}
+
+  @media (max-width:560px){
+    h1{font-size:24px;}
+    .custom-range{margin-left:0;width:100%;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div>
+      <h1>Climate <span>Panel</span></h1>
+      <div class="sub">Room temperature &amp; humidity log — daily min / max / average readout</div>
+    </div>
+    <div class="status-pill"><span class="led" id="statusLed"></span><span id="statusText">no file loaded</span></div>
+  </header>
+
+  <div id="dropzone">
+    <div class="dz-title">Drop CSV here, or click to browse</div>
+    <div class="dz-sub">Expects columns: date, room, timestamp, temperature_c, humidity_pct — up to ~20,000 rows</div>
+    <input type="file" id="fileInput" accept=".csv,text/csv">
+  </div>
+
+  <div class="filebar" id="filebar">
+    <span>Loaded <b id="fileMeta">—</b></span>
+    <a id="loadNew">load a different file</a>
+  </div>
+
+  <div id="app">
+
+    <div class="controls">
+      <div class="presets" id="presets">
+        <button class="btn" data-preset="day"><span class="led"></span>Day</button>
+        <button class="btn" data-preset="week"><span class="led"></span>Week</button>
+        <button class="btn" data-preset="month"><span class="led"></span>Month</button>
+        <button class="btn" data-preset="quarter"><span class="led"></span>Quarter</button>
+        <button class="btn" data-preset="year"><span class="led"></span>Year</button>
+      </div>
+      <select id="roomSelect" style="display:none;"></select>
+      <div class="custom-range">
+        <input type="date" id="fromDate">
+        <span class="to">to</span>
+        <input type="date" id="toDate">
+        <button class="btn" id="applyRange">Apply</button>
+      </div>
+    </div>
+
+    <div class="readouts">
+      <div class="card temp">
+        <div class="label">Temperature — avg</div>
+        <div class="value" id="tempAvg">—<span class="unit">°C</span></div>
+        <div class="minmax"><span>min <b id="tempMin">—</b></span><span>max <b id="tempMax">—</b></span></div>
+      </div>
+      <div class="card hum">
+        <div class="label">Humidity — avg</div>
+        <div class="value" id="humAvg">—<span class="unit">%</span></div>
+        <div class="minmax"><span>min <b id="humMin">—</b></span><span>max <b id="humMax">—</b></span></div>
+      </div>
+    </div>
+
+    <div class="chart-panel">
+      <div class="chart-head">
+        <div class="chart-title" id="chartTitle">Readings</div>
+        <div>
+          <span class="legend-item"><span class="swatch" style="background:var(--temp)"></span>Temp °C (left)</span>
+          <span class="legend-item"><span class="swatch" style="background:var(--hum)"></span>Humidity % (right)</span>
+        </div>
+      </div>
+      <div id="chartCanvasWrap"><canvas id="chart"></canvas></div>
+    </div>
+
+    <div class="table-panel">
+      <h2>Daily breakdown</h2>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Temp min</th>
+              <th>Temp avg</th>
+              <th>Temp max</th>
+              <th>Hum min</th>
+              <th>Hum avg</th>
+              <th>Hum max</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="empty-note" id="emptyNote" style="display:none;">No readings fall inside the selected range.</div>
+
+</div>
+
+<script>
+let rows = [];          // {date:'YYYY-MM-DD', room, ts:Date, temp:Number, hum:Number}
+let rooms = [];
+let currentRoom = null;
+let rangeStart = null;  // Date (midnight)
+let rangeEnd = null;    // Date (midnight, inclusive day)
+let chart = null;
+let activePreset = null;
+
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+const filebar = document.getElementById('filebar');
+const fileMeta = document.getElementById('fileMeta');
+const appEl = document.getElementById('app');
+const statusLed = document.getElementById('statusLed');
+const statusText = document.getElementById('statusText');
+const roomSelect = document.getElementById('roomSelect');
+const fromDateEl = document.getElementById('fromDate');
+const toDateEl = document.getElementById('toDate');
+const emptyNote = document.getElementById('emptyNote');
+
+dropzone.addEventListener('click', () => fileInput.click());
+['dragover','dragenter'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.add('drag'); }));
+['dragleave','drop'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.remove('drag'); }));
+dropzone.addEventListener('drop', e => { if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
+fileInput.addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
+document.getElementById('loadNew').addEventListener('click', () => {
+  dropzone.style.display='block'; filebar.style.display='none'; appEl.style.display='none';
+  fileInput.value='';
+});
+
+function handleFile(file){
+  statusText.textContent = 'parsing…';
+  Papa.parse(file, {
+    header:true,
+    dynamicTyping:true,
+    skipEmptyLines:true,
+    complete: res => {
+      ingest(res.data, file.name);
+    },
+    error: err => {
+      statusText.textContent = 'parse error';
+      alert('Could not parse CSV: ' + err.message);
+    }
+  });
+}
+
+function ingest(data, filename){
+  rows = [];
+  const roomSet = new Set();
+  for (const r of data){
+    if (!r.timestamp || r.temperature_c == null || r.humidity_pct == null) continue;
+    const ts = new Date(r.timestamp);
+    if (isNaN(ts)) continue;
+    const dateKey = r.date || ts.toISOString().slice(0,10);
+    const room = r.room || 'Home';
+    roomSet.add(room);
+    rows.push({date:dateKey, room, ts, temp:Number(r.temperature_c), hum:Number(r.humidity_pct)});
+  }
+  if (!rows.length){
+    statusText.textContent = 'no valid rows found';
+    alert('No valid rows found. Expecting columns: date, room, timestamp, temperature_c, humidity_pct');
+    return;
+  }
+  rows.sort((a,b) => a.ts - b.ts);
+  rooms = [...roomSet];
+  currentRoom = rooms[0];
+
+  roomSelect.innerHTML = rooms.map(r => `<option value="${r}">${r}</option>`).join('');
+  roomSelect.style.display = rooms.length > 1 ? 'inline-block' : 'none';
+  roomSelect.value = currentRoom;
+
+  fileMeta.textContent = `${filename} — ${rows.length.toLocaleString()} rows, ${rooms.length} room${rooms.length>1?'s':''}`;
+  dropzone.style.display = 'none';
+  filebar.style.display = 'flex';
+  appEl.style.display = 'block';
+  statusLed.classList.add('on');
+  statusText.textContent = 'live';
+
+  const maxTs = rows[rows.length-1].ts;
+  const minTs = rows[0].ts;
+  fromDateEl.min = toISODate(minTs); fromDateEl.max = toISODate(maxTs);
+  toDateEl.min = toISODate(minTs); toDateEl.max = toISODate(maxTs);
+
+  setPreset('week');
+}
+
+roomSelect.addEventListener('change', () => { currentRoom = roomSelect.value; render(); });
+
+document.getElementById('presets').addEventListener('click', e => {
+  const btn = e.target.closest('.btn');
+  if (!btn) return;
+  setPreset(btn.dataset.preset);
+});
+
+document.getElementById('applyRange').addEventListener('click', () => {
+  if (!fromDateEl.value || !toDateEl.value) return;
+  activePreset = null;
+  updatePresetButtons();
+  rangeStart = startOfDay(new Date(fromDateEl.value + 'T00:00:00'));
+  rangeEnd = startOfDay(new Date(toDateEl.value + 'T00:00:00'));
+  if (rangeEnd < rangeStart) { [rangeStart, rangeEnd] = [rangeEnd, rangeStart]; }
+  render();
+});
+
+function setPreset(name){
+  if (!rows.length) return;
+  activePreset = name;
+  updatePresetButtons();
+  const maxDay = startOfDay(rows[rows.length-1].ts);
+  const days = {day:1, week:7, month:30, quarter:91, year:365}[name];
+  rangeEnd = maxDay;
+  rangeStart = addDays(maxDay, -(days-1));
+  const minDay = startOfDay(rows[0].ts);
+  if (rangeStart < minDay) rangeStart = minDay;
+  fromDateEl.value = toISODate(rangeStart);
+  toDateEl.value = toISODate(rangeEnd);
+  render();
+}
+
+function updatePresetButtons(){
+  document.querySelectorAll('#presets .btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.preset === activePreset);
+  });
+}
+
+function startOfDay(d){ const n = new Date(d); n.setHours(0,0,0,0); return n; }
+function addDays(d, n){ const r = new Date(d); r.setDate(r.getDate()+n); return r; }
+function toISODate(d){
+  const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+function fmtShort(d){ return d.toLocaleDateString(undefined, {month:'2-digit', day:'2-digit'}); }
+function round1(n){ return Math.round(n*10)/10; }
+
+function render(){
+  if (!rangeStart || !rangeEnd) return;
+  const endExclusive = addDays(rangeEnd, 1);
+  const filtered = rows.filter(r => r.room === currentRoom && r.ts >= rangeStart && r.ts < endExclusive);
+
+  emptyNote.style.display = filtered.length ? 'none' : 'block';
+  document.querySelector('.chart-panel').style.display = filtered.length ? 'block' : 'none';
+  document.querySelector('.table-panel').style.display = filtered.length ? 'block' : 'none';
+  document.querySelector('.readouts').style.display = filtered.length ? 'grid' : 'none';
+  if (!filtered.length) return;
+
+  // summary cards
+  const temps = filtered.map(r=>r.temp), hums = filtered.map(r=>r.hum);
+  document.getElementById('tempAvg').innerHTML = round1(temps.reduce((a,b)=>a+b,0)/temps.length) + '<span class="unit">°C</span>';
+  document.getElementById('tempMin').textContent = round1(Math.min(...temps)) + '°';
+  document.getElementById('tempMax').textContent = round1(Math.max(...temps)) + '°';
+  document.getElementById('humAvg').innerHTML = round1(hums.reduce((a,b)=>a+b,0)/hums.length) + '<span class="unit">%</span>';
+  document.getElementById('humMin').textContent = round1(Math.min(...hums)) + '%';
+  document.getElementById('humMax').textContent = round1(Math.max(...hums)) + '%';
+
+  // daily aggregates (for table, always; for chart when range is long)
+  const byDay = new Map();
+  for (const r of filtered){
+    if (!byDay.has(r.date)) byDay.set(r.date, {temps:[], hums:[]});
+    byDay.get(r.date).temps.push(r.temp);
+    byDay.get(r.date).hums.push(r.hum);
+  }
+  const dayKeys = [...byDay.keys()].sort();
+  const daily = dayKeys.map(date => {
+    const {temps, hums} = byDay.get(date);
+    return {
+      date,
+      tMin: Math.min(...temps), tMax: Math.max(...temps), tAvg: temps.reduce((a,b)=>a+b,0)/temps.length,
+      hMin: Math.min(...hums), hMax: Math.max(...hums), hAvg: hums.reduce((a,b)=>a+b,0)/hums.length,
+    };
+  });
+
+  renderTable(daily);
+  renderChart(filtered, daily);
+}
+
+function renderTable(daily){
+  const tbody = document.getElementById('tableBody');
+  tbody.innerHTML = daily.slice().reverse().map(d => `
+    <tr>
+      <td>${d.date}</td>
+      <td class="t">${round1(d.tMin)}</td>
+      <td class="t">${round1(d.tAvg)}</td>
+      <td class="t">${round1(d.tMax)}</td>
+      <td class="h">${round1(d.hMin)}</td>
+      <td class="h">${round1(d.hAvg)}</td>
+      <td class="h">${round1(d.hMax)}</td>
+    </tr>`).join('');
+}
+
+function renderChart(filtered, daily){
+  if (typeof Chart === 'undefined'){
+    document.getElementById('chartCanvasWrap').innerHTML =
+      '<div class="empty-note">Chart library failed to load from CDN — check your network/ad-blocker and reload the page.</div>';
+    return;
+  }
+  const numDays = daily.length;
+  const useDaily = numDays > 10; // downsample beyond ~10 days for readability/performance
+  document.getElementById('chartTitle').textContent = useDaily
+    ? `Daily average — ${currentRoom}`
+    : `Raw readings — ${currentRoom}`;
+
+  let labels, tempData, humData;
+  if (useDaily){
+    labels = daily.map(d => d.date);
+    tempData = daily.map(d => round1(d.tAvg));
+    humData = daily.map(d => round1(d.hAvg));
+  } else {
+    labels = filtered.map(r => r.ts.toLocaleString(undefined, {month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'}));
+    tempData = filtered.map(r => r.temp);
+    humData = filtered.map(r => r.hum);
+  }
+
+  const ctx = document.getElementById('chart').getContext('2d');
+  if (chart) chart.destroy();
+  chart = new Chart(ctx, {
+    type:'line',
+    data:{
+      labels,
+      datasets:[
+        {
+          label:'Temperature (°C)',
+          data:tempData,
+          borderColor:'#e85d42',
+          backgroundColor:'#e85d42',
+          borderWidth:2,
+          pointRadius:0,
+          pointHoverRadius:4,
+          tension:0.25,
+          yAxisID:'yTemp',
+        },
+        {
+          label:'Humidity (%)',
+          data:humData,
+          borderColor:'#4e8fd1',
+          backgroundColor:'#4e8fd1',
+          borderWidth:2,
+          pointRadius:0,
+          pointHoverRadius:4,
+          tension:0.25,
+          yAxisID:'yHum',
+        }
+      ]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      interaction:{mode:'index', intersect:false},
+      plugins:{
+        legend:{display:false},
+        tooltip:{
+          backgroundColor:'#211c17',
+          borderColor:'#3a322a',
+          borderWidth:1,
+          titleColor:'#f3ead9',
+          bodyColor:'#f3ead9',
+          titleFont:{family:'JetBrains Mono'},
+          bodyFont:{family:'JetBrains Mono'},
+        }
+      },
+      scales:{
+        x:{
+          ticks:{color:'#9c9082', font:{family:'JetBrains Mono', size:10}, maxRotation:0, autoSkip:true, maxTicksLimit: useDaily ? 12 : 8},
+          grid:{color:'rgba(243,234,217,0.05)'}
+        },
+        yTemp:{
+          position:'left',
+          ticks:{color:'#e85d42', font:{family:'JetBrains Mono', size:10}},
+          grid:{color:'rgba(243,234,217,0.07)'},
+          title:{display:true, text:'°C', color:'#e85d42', font:{family:'Rajdhani'}}
+        },
+        yHum:{
+          position:'right',
+          ticks:{color:'#4e8fd1', font:{family:'JetBrains Mono', size:10}},
+          grid:{drawOnChartArea:false},
+          title:{display:true, text:'%', color:'#4e8fd1', font:{family:'Rajdhani'}}
+        }
+      }
+    }
+  });
+}
+</script>
+</body>
+</html>
