@@ -18,6 +18,7 @@
     --muted:#9c9082;
     --temp:#e85d42;
     --hum:#4e8fd1;
+    --heat:#e6c44f;
     --gold:#c9a24b;
     --grid: rgba(243,234,217,0.07);
   }
@@ -352,6 +353,7 @@
         <div>
           <span class="legend-item"><span class="swatch" style="background:var(--temp)"></span>Temp °C (left)</span>
           <span class="legend-item"><span class="swatch" style="background:var(--hum)"></span>Humidity % (right)</span>
+          <span class="legend-item"><span class="swatch" style="background:var(--heat)"></span>Heating (shaded)</span>
         </div>
       </div>
       <div id="chartCanvasWrap"><canvas id="chart"></canvas></div>
@@ -462,7 +464,8 @@ function addParsedRows(data){
     // Europe/London civil time instead, so BST readings land on the right day.
     const dateKey = toDateKey(ts);
     const room = r.room || 'Home';
-    rows.push({date:dateKey, room, ts, temp:Number(r.temperature_c), hum:Number(r.humidity_pct)});
+    const heating = (r.heating_pct === '' || r.heating_pct == null || isNaN(r.heating_pct)) ? null : Number(r.heating_pct);
+    rows.push({date:dateKey, room, ts, temp:Number(r.temperature_c), hum:Number(r.humidity_pct), heating});
   }
 }
 
@@ -634,17 +637,19 @@ function render(){
   // daily aggregates (for table, always; for chart when range is long)
   const byDay = new Map();
   for (const r of filtered){
-    if (!byDay.has(r.date)) byDay.set(r.date, {temps:[], hums:[]});
+    if (!byDay.has(r.date)) byDay.set(r.date, {temps:[], hums:[], heats:[]});
     byDay.get(r.date).temps.push(r.temp);
     byDay.get(r.date).hums.push(r.hum);
+    if (r.heating != null) byDay.get(r.date).heats.push(r.heating);
   }
   const dayKeys = [...byDay.keys()].sort();
   const daily = dayKeys.map(date => {
-    const {temps, hums} = byDay.get(date);
+    const {temps, hums, heats} = byDay.get(date);
     return {
       date,
       tMin: Math.min(...temps), tMax: Math.max(...temps), tAvg: temps.reduce((a,b)=>a+b,0)/temps.length,
       hMin: Math.min(...hums), hMax: Math.max(...hums), hAvg: hums.reduce((a,b)=>a+b,0)/hums.length,
+      heatAvg: heats.length ? heats.reduce((a,b)=>a+b,0)/heats.length : null,
     };
   });
 
@@ -666,6 +671,41 @@ function renderTable(daily){
     </tr>`).join('');
 }
 
+// Draws light-yellow shading behind the lines wherever heating was active.
+// Shading height is proportional to the heating percentage for that point/day
+// (e.g. 33% heating power fills the bottom third of the chart area, 100% fills it all).
+const heatingShadingPlugin = {
+  id: 'heatingShading',
+  beforeDraw(chart, args, opts){
+    const data = opts && opts.data;
+    if (!data || !data.length) return;
+    const {ctx, chartArea, scales} = chart;
+    if (!chartArea) return;
+    const xScale = scales.x;
+    const n = data.length;
+    ctx.save();
+    ctx.fillStyle = 'rgba(230, 196, 79, 0.28)';
+    for (let i = 0; i < n; i++){
+      const pct = data[i];
+      if (pct == null || pct <= 0) continue;
+      const center = xScale.getPixelForValue(i);
+      let xStart, xEnd;
+      if (n === 1){
+        xStart = chartArea.left; xEnd = chartArea.right;
+      } else {
+        const prevCenter = i > 0 ? xScale.getPixelForValue(i - 1) : center - (xScale.getPixelForValue(1) - center);
+        const nextCenter = i < n - 1 ? xScale.getPixelForValue(i + 1) : center + (center - prevCenter);
+        xStart = (prevCenter + center) / 2;
+        xEnd = (center + nextCenter) / 2;
+      }
+      const h = Math.max(0, Math.min(1, pct / 100)) * chartArea.height;
+      const y = chartArea.bottom - h;
+      ctx.fillRect(xStart, y, Math.max(1, xEnd - xStart), h);
+    }
+    ctx.restore();
+  }
+};
+
 function renderChart(filtered, daily){
   if (typeof Chart === 'undefined'){
     document.getElementById('chartCanvasWrap').innerHTML =
@@ -678,21 +718,24 @@ function renderChart(filtered, daily){
     ? `Daily average — ${currentRoom}`
     : `Raw readings — ${currentRoom}`;
 
-  let labels, tempData, humData;
+  let labels, tempData, humData, heatingData;
   if (useDaily){
     labels = daily.map(d => d.date);
     tempData = daily.map(d => round1(d.tAvg));
     humData = daily.map(d => round1(d.hAvg));
+    heatingData = daily.map(d => d.heatAvg);
   } else {
     labels = filtered.map(r => formatLondonDateTime(r.ts));
     tempData = filtered.map(r => r.temp);
     humData = filtered.map(r => r.hum);
+    heatingData = filtered.map(r => r.heating);
   }
 
   const ctx = document.getElementById('chart').getContext('2d');
   if (chart) chart.destroy();
   chart = new Chart(ctx, {
     type:'line',
+    plugins:[heatingShadingPlugin],
     data:{
       labels,
       datasets:[
@@ -726,6 +769,7 @@ function renderChart(filtered, daily){
       interaction:{mode:'index', intersect:false},
       plugins:{
         legend:{display:false},
+        heatingShading:{data:heatingData},
         tooltip:{
           backgroundColor:'#211c17',
           borderColor:'#3a322a',
@@ -734,6 +778,12 @@ function renderChart(filtered, daily){
           bodyColor:'#f3ead9',
           titleFont:{family:'JetBrains Mono'},
           bodyFont:{family:'JetBrains Mono'},
+          callbacks:{
+            afterBody(items){
+              const pct = heatingData[items[0].dataIndex];
+              return pct == null ? [] : [`Heating: ${round1(pct)}%`];
+            }
+          }
         }
       },
       scales:{
