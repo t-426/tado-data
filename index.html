@@ -208,6 +208,10 @@
   }
   .card.temp .value{color:var(--temp);text-shadow:0 0 14px rgba(232,93,66,0.35);}
   .card.hum .value{color:var(--hum);text-shadow:0 0 14px rgba(78,143,209,0.35);}
+  .card.heat::before{background:var(--heat);}
+  .card.heat .value{color:var(--muted);}
+  .card.heat.on .value{color:var(--heat);text-shadow:0 0 14px rgba(230,196,79,0.35);}
+  .card.heat.off .value{color:var(--muted);}
   .card .unit{font-size:13px;color:var(--muted);font-weight:400;}
   .card .minmax{
     margin-top:8px;
@@ -246,7 +250,11 @@
     display:inline-flex;align-items:center;gap:5px;
     font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted);
     margin-left:14px;
+    cursor:pointer;
+    user-select:none;
+    transition:opacity .15s;
   }
+  .legend-item.off{opacity:0.35;}
   .swatch{width:10px;height:2.5px;border-radius:2px;}
   #chartCanvasWrap{height:340px;position:relative;}
 
@@ -336,14 +344,19 @@
 
     <div class="readouts">
       <div class="card temp">
-        <div class="label">Temperature — avg</div>
-        <div class="value" id="tempAvg">—<span class="unit">°C</span></div>
-        <div class="minmax"><span>min <b id="tempMin">—</b></span><span>max <b id="tempMax">—</b></span></div>
+        <div class="label">Temperature — current</div>
+        <div class="value" id="tempLatest">—<span class="unit">°C</span></div>
+        <div class="minmax"><span>min <b id="tempMin">—</b></span><span>avg <b id="tempAvgSub">—</b></span><span>max <b id="tempMax">—</b></span></div>
       </div>
       <div class="card hum">
-        <div class="label">Humidity — avg</div>
-        <div class="value" id="humAvg">—<span class="unit">%</span></div>
-        <div class="minmax"><span>min <b id="humMin">—</b></span><span>max <b id="humMax">—</b></span></div>
+        <div class="label">Humidity — current</div>
+        <div class="value" id="humLatest">—<span class="unit">%</span></div>
+        <div class="minmax"><span>min <b id="humMin">—</b></span><span>avg <b id="humAvgSub">—</b></span><span>max <b id="humMax">—</b></span></div>
+      </div>
+      <div class="card heat" id="heatCard">
+        <div class="label">Heating — current</div>
+        <div class="value" id="heatState">—</div>
+        <div class="minmax"><span>avg <b id="heatAvgSub">—</b></span><span>max <b id="heatMaxSub">—</b></span></div>
       </div>
     </div>
 
@@ -351,9 +364,9 @@
       <div class="chart-head">
         <div class="chart-title" id="chartTitle">Readings</div>
         <div>
-          <span class="legend-item"><span class="swatch" style="background:var(--temp)"></span>Temp °C (left)</span>
-          <span class="legend-item"><span class="swatch" style="background:var(--hum)"></span>Humidity % (right)</span>
-          <span class="legend-item"><span class="swatch" style="background:var(--heat)"></span>Heating (shaded)</span>
+          <span class="legend-item" id="legendTemp" data-series="temp"><span class="swatch" style="background:var(--temp)"></span>Temp °C (left)</span>
+          <span class="legend-item" id="legendHum" data-series="hum"><span class="swatch" style="background:var(--hum)"></span>Humidity % (right)</span>
+          <span class="legend-item" id="legendHeat" data-series="heat"><span class="swatch" style="background:var(--heat)"></span>Heating (shaded)</span>
         </div>
       </div>
       <div id="chartCanvasWrap"><canvas id="chart"></canvas></div>
@@ -395,6 +408,8 @@ let chart = null;
 let activePreset = null;
 let loadedYears = new Set();   // calendar years already fetched from the repo
 let dataSource = null;         // 'repo' | 'upload'
+let lastFiltered = null, lastDaily = null;  // cached for re-rendering the chart on legend toggle
+const seriesVisible = { temp:true, hum:true, heat:true };
 
 const dropzone = document.getElementById('dropzone');
 const fileInput = document.getElementById('fileInput');
@@ -425,6 +440,15 @@ switchSource.addEventListener('click', () => {
     dropzone.style.display = 'block'; // reveal manual upload
     switchSource.textContent = 'cancel';
   }
+});
+
+document.querySelectorAll('.legend-item[data-series]').forEach(el => {
+  el.addEventListener('click', () => {
+    const key = el.dataset.series;
+    seriesVisible[key] = !seriesVisible[key];
+    el.classList.toggle('off', !seriesVisible[key]);
+    if (lastFiltered) renderChart(lastFiltered, lastDaily);
+  });
 });
 
 
@@ -627,12 +651,41 @@ function render(){
 
   // summary cards
   const temps = filtered.map(r=>r.temp), hums = filtered.map(r=>r.hum);
-  document.getElementById('tempAvg').innerHTML = round1(temps.reduce((a,b)=>a+b,0)/temps.length) + '<span class="unit">°C</span>';
+  const heatsAll = filtered.map(r=>r.heating).filter(v => v != null);
+  const latest = filtered[filtered.length - 1];
+
+  document.getElementById('tempLatest').innerHTML = round1(latest.temp) + '<span class="unit">°C</span>';
   document.getElementById('tempMin').textContent = round1(Math.min(...temps)) + '°';
+  document.getElementById('tempAvgSub').textContent = round1(temps.reduce((a,b)=>a+b,0)/temps.length) + '°';
   document.getElementById('tempMax').textContent = round1(Math.max(...temps)) + '°';
-  document.getElementById('humAvg').innerHTML = round1(hums.reduce((a,b)=>a+b,0)/hums.length) + '<span class="unit">%</span>';
+
+  document.getElementById('humLatest').innerHTML = round1(latest.hum) + '<span class="unit">%</span>';
   document.getElementById('humMin').textContent = round1(Math.min(...hums)) + '%';
+  document.getElementById('humAvgSub').textContent = round1(hums.reduce((a,b)=>a+b,0)/hums.length) + '%';
   document.getElementById('humMax').textContent = round1(Math.max(...hums)) + '%';
+
+  const heatCardEl = document.getElementById('heatCard');
+  const heatStateEl = document.getElementById('heatState');
+  const heatAvgSubEl = document.getElementById('heatAvgSub');
+  const heatMaxSubEl = document.getElementById('heatMaxSub');
+  if (latest.heating == null){
+    heatStateEl.textContent = '—';
+    heatCardEl.classList.remove('on', 'off');
+    heatAvgSubEl.textContent = '—';
+    heatMaxSubEl.textContent = '—';
+  } else {
+    const isOn = latest.heating > 0;
+    heatStateEl.textContent = isOn ? 'ON' : 'OFF';
+    heatCardEl.classList.toggle('on', isOn);
+    heatCardEl.classList.toggle('off', !isOn);
+    if (heatsAll.length){
+      heatAvgSubEl.textContent = round1(heatsAll.reduce((a,b)=>a+b,0)/heatsAll.length) + '%';
+      heatMaxSubEl.textContent = round1(Math.max(...heatsAll)) + '%';
+    } else {
+      heatAvgSubEl.textContent = '—';
+      heatMaxSubEl.textContent = '—';
+    }
+  }
 
   // daily aggregates (for table, always; for chart when range is long)
   const byDay = new Map();
@@ -654,6 +707,8 @@ function render(){
   });
 
   renderTable(daily);
+  lastFiltered = filtered;
+  lastDaily = daily;
   renderChart(filtered, daily);
 }
 
@@ -715,8 +770,8 @@ function renderChart(filtered, daily){
   const numDays = daily.length;
   const useDaily = numDays > 10; // downsample beyond ~10 days for readability/performance
   document.getElementById('chartTitle').textContent = useDaily
-    ? `Daily average — ${currentRoom}`
-    : `Raw readings — ${currentRoom}`;
+    ? `${currentRoom} Daily Average Chart`
+    : `${currentRoom} Readings Chart`;
 
   let labels, tempData, humData, heatingData;
   if (useDaily){
@@ -749,6 +804,7 @@ function renderChart(filtered, daily){
           pointHoverRadius:4,
           tension:0.25,
           yAxisID:'yTemp',
+          hidden: !seriesVisible.temp,
         },
         {
           label:'Humidity (%)',
@@ -760,6 +816,7 @@ function renderChart(filtered, daily){
           pointHoverRadius:4,
           tension:0.25,
           yAxisID:'yHum',
+          hidden: !seriesVisible.hum,
         }
       ]
     },
@@ -769,7 +826,7 @@ function renderChart(filtered, daily){
       interaction:{mode:'index', intersect:false},
       plugins:{
         legend:{display:false},
-        heatingShading:{data:heatingData},
+        heatingShading:{data: seriesVisible.heat ? heatingData : []},
         tooltip:{
           backgroundColor:'#211c17',
           borderColor:'#3a322a',
@@ -780,6 +837,7 @@ function renderChart(filtered, daily){
           bodyFont:{family:'JetBrains Mono'},
           callbacks:{
             afterBody(items){
+              if (!seriesVisible.heat) return [];
               const pct = heatingData[items[0].dataIndex];
               return pct == null ? [] : [`Heating: ${round1(pct)}%`];
             }
