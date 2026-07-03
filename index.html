@@ -119,7 +119,7 @@
     color:var(--muted);
   }
   .filebar b{color:var(--text);font-weight:500;}
-  .filebar a{color:var(--gold);text-decoration:none;cursor:pointer;}
+  .filebar .sync-label{color:var(--gold);}
 
   #app{display:none;}
 
@@ -323,7 +323,7 @@
 
   <div class="filebar" id="filebar" style="display:flex;">
     <span id="fileMeta">Looking for data in this repo…</span>
-    <a id="switchSource">upload a different CSV instead</a>
+    <span id="lastSync" class="sync-label"></span>
   </div>
 
   <div id="app">
@@ -418,7 +418,7 @@ const dropzone = document.getElementById('dropzone');
 const fileInput = document.getElementById('fileInput');
 const filebar = document.getElementById('filebar');
 const fileMeta = document.getElementById('fileMeta');
-const switchSource = document.getElementById('switchSource');
+const lastSync = document.getElementById('lastSync');
 const appEl = document.getElementById('app');
 const statusLed = document.getElementById('statusLed');
 const statusText = document.getElementById('statusText');
@@ -432,18 +432,6 @@ dropzone.addEventListener('click', () => fileInput.click());
 ['dragleave','drop'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.remove('drag'); }));
 dropzone.addEventListener('drop', e => { if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
 fileInput.addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
-
-switchSource.addEventListener('click', () => {
-  if (dataSource === 'upload'){
-    autoLoadFromRepo();               // revert to repo data
-  } else if (dropzone.style.display === 'block'){
-    dropzone.style.display = 'none';  // cancel the upload prompt
-    switchSource.textContent = 'upload a different CSV instead';
-  } else {
-    dropzone.style.display = 'block'; // reveal manual upload
-    switchSource.textContent = 'cancel';
-  }
-});
 
 document.querySelectorAll('.legend-item[data-series]').forEach(el => {
   el.addEventListener('click', () => {
@@ -472,7 +460,6 @@ function handleFile(file){
         return;
       }
       finishLoad(`Loaded external file — ${file.name}`);
-      switchSource.textContent = 'reload data from repo';
     },
     error: err => {
       statusText.textContent = 'parse error';
@@ -529,10 +516,10 @@ async function ensureYearsLoaded(startKey, endKey){
 // Tries this year's file, then last year's, to find the latest available data on page load.
 async function autoLoadFromRepo(){
   dropzone.style.display = 'none';
-  switchSource.textContent = 'upload a different CSV instead';
   appEl.style.display = 'none';
   filebar.style.display = 'flex';
   fileMeta.textContent = 'Looking for data in this repo…';
+  lastSync.textContent = '';
   statusLed.classList.remove('on');
   statusText.textContent = 'loading…';
 
@@ -548,7 +535,6 @@ async function autoLoadFromRepo(){
     statusText.textContent = 'no repo data found';
     fileMeta.textContent = `Could not find ${thisYear}_data.csv next to this page.`;
     dropzone.style.display = 'block';
-    switchSource.textContent = 'cancel';
     appEl.style.display = 'none';
     return;
   }
@@ -567,6 +553,7 @@ function finishLoad(label){
   roomSelect.value = currentRoom;
 
   fileMeta.textContent = `${label} — ${rows.length.toLocaleString()} rows, ${rooms.length} room${rooms.length>1?'s':''}`;
+  lastSync.textContent = `Last sync ${formatLondonSync(rows[rows.length - 1].ts)}`;
   dropzone.style.display = 'none';
   filebar.style.display = 'flex';
   appEl.style.display = 'block';
@@ -626,10 +613,12 @@ function updatePresetButtons(){
 // own device timezone setting.
 const londonDateFmt = new Intl.DateTimeFormat('en-CA', {timeZone:'Europe/London', year:'numeric', month:'2-digit', day:'2-digit'});
 const londonTimeFmt = new Intl.DateTimeFormat('en-GB', {timeZone:'Europe/London', day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false});
+const londonHourMinFmt = new Intl.DateTimeFormat('en-GB', {timeZone:'Europe/London', hour:'2-digit', minute:'2-digit', hour12:false});
 const londonZoneFmt = new Intl.DateTimeFormat('en-GB', {timeZone:'Europe/London', timeZoneName:'short'});
 
 function toDateKey(d){ return londonDateFmt.format(d); }               // Date -> "YYYY-MM-DD" (London civil date)
 function formatLondonDateTime(d){ return londonTimeFmt.format(d); }    // Date -> "dd/mm, hh:mm" (London wall-clock)
+function formatLondonSync(d){ return `${toDateKey(d)} ${londonHourMinFmt.format(d)}`; }  // Date -> "YYYY-MM-DD HH:MM"
 function currentLondonZoneAbbrev(){
   const part = londonZoneFmt.formatToParts(new Date()).find(p => p.type === 'timeZoneName');
   return part ? part.value : 'UK time';
