@@ -2,12 +2,14 @@ name: Deploy Pages on Update
 
 on:
   push:
-    branches: ["main"] # Or whatever your default branch is
+    branches: ["main"]
 
 permissions:
   pages: write
   id-token: write
 
+# This block is the critical fix. It instantly kills any stale or 
+# simultaneous duplicate runs before they can create a second artifact.
 concurrency:
   group: "pages"
   cancel-in-progress: true
@@ -21,7 +23,8 @@ jobs:
       - name: Upload Pages Artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: '.' # Uploads everything (index.html + data.csv) directly from the root
-
+          path: '.'
+          
       - name: Deploy to GitHub Pages
         uses: actions/deploy-pages@v4
+        
