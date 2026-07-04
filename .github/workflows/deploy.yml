@@ -1,0 +1,27 @@
+name: Deploy Pages on Update
+
+on:
+  push:
+    branches: ["main"] # Or whatever your default branch is
+
+permissions:
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.' # Uploads everything (index.html + data.csv) directly from the root
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4
