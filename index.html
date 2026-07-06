@@ -109,6 +109,8 @@
     display:none;
     align-items:center;
     justify-content:space-between;
+    flex-wrap:wrap;
+    gap:4px 14px;
     background:var(--panel);
     border:1px solid var(--border);
     border-radius:8px;
@@ -119,7 +121,7 @@
     color:var(--muted);
   }
   .filebar b{color:var(--text);font-weight:500;}
-  .filebar .sync-label{color:var(--gold);}
+  .filebar .sync-label{color:var(--heat);font-weight:600;}
 
   #app{display:none;}
 
@@ -347,6 +349,7 @@
 
   <div class="filebar" id="filebar" style="display:flex;">
     <span id="fileMeta">Looking for data in this repo…</span>
+    <span id="syncLabel" class="sync-label"></span>
   </div>
 
   <div id="app">
@@ -440,6 +443,7 @@ const dropzone = document.getElementById('dropzone');
 const fileInput = document.getElementById('fileInput');
 const filebar = document.getElementById('filebar');
 const fileMeta = document.getElementById('fileMeta');
+const syncLabel = document.getElementById('syncLabel');
 const appEl = document.getElementById('app');
 const statusLed = document.getElementById('statusLed');
 const statusText = document.getElementById('statusText');
@@ -562,6 +566,7 @@ async function autoLoadFromRepo(){
   appEl.style.display = 'none';
   filebar.style.display = 'flex';
   fileMeta.textContent = 'Looking for data in this repo…';
+  syncLabel.textContent = '';
   statusLed.classList.remove('on');
   statusText.textContent = 'loading…';
 
@@ -576,6 +581,7 @@ async function autoLoadFromRepo(){
   if (!found || !rows.length){
     statusText.textContent = 'no repo data found';
     fileMeta.textContent = `Could not find ${thisYear}_data.csv next to this page.`;
+    syncLabel.textContent = '';
     dropzone.style.display = 'block';
     appEl.style.display = 'none';
     return;
@@ -594,10 +600,10 @@ function finishLoad(label){
   roomSelect.style.display = rooms.length > 1 ? 'inline-block' : 'none';
   roomSelect.value = currentRoom;
 
-  const syncText = `Last sync ${formatLondonSync(rows[rows.length - 1].ts)}`;
   fileMeta.textContent = dataSource === 'repo'
-    ? `Data autoloaded every 30 minutes. ${rows.length.toLocaleString()} rows. ${syncText}`
-    : `${label} — ${rows.length.toLocaleString()} rows. ${syncText}`;
+    ? `Data autoloaded every 30 minutes. ${rows.length.toLocaleString()} rows.`
+    : `${label} — ${rows.length.toLocaleString()} rows.`;
+  syncLabel.textContent = `Last sync ${formatLondonSync(rows[rows.length - 1].ts)}`;
   dropzone.style.display = 'none';
   filebar.style.display = 'flex';
   appEl.style.display = 'block';
