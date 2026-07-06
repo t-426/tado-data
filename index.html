@@ -309,8 +309,7 @@
   <header>
     <div>
       <h1>Home Climate Panel<span> — Tado Log</span></h1>
-      <div class="sub">Room temperature &amp; humidity log — daily min / max / average readout</div>
-      <div class="sub" id="tzNote" style="margin-top:2px;">Times shown in UK local time</div>
+      <div class="sub" id="headerSummary">Loading…</div>
     </div>
     <div class="status-pill" style="display:none;"><span class="led" id="statusLed"></span><span id="statusText">loading…</span></div>
   </header>
@@ -533,6 +532,7 @@ async function autoLoadFromRepo(){
   if (!found || !rows.length){
     statusText.textContent = 'no repo data found';
     fileMeta.textContent = `Could not find ${thisYear}_data.csv next to this page.`;
+    document.getElementById('headerSummary').textContent = `Could not find ${thisYear}_data.csv next to this page.`;
     dropzone.style.display = 'block';
     appEl.style.display = 'none';
     return;
@@ -552,6 +552,7 @@ function finishLoad(label){
   roomSelect.value = currentRoom;
 
   fileMeta.textContent = `${label} — ${rows.length.toLocaleString()} rows, ${rooms.length} room${rooms.length>1?'s':''}`;
+  document.getElementById('headerSummary').textContent = `${label} — ${rows.length.toLocaleString()} rows.`;
   lastSync.textContent = `Last sync ${formatLondonSync(rows[rows.length - 1].ts)}`;
   dropzone.style.display = 'none';
   filebar.style.display = 'flex';
@@ -858,7 +859,6 @@ function renderChart(filtered, daily){
 }
 
 // Kick things off: try to load this repo's own CSV(s) first.
-document.getElementById('tzNote').textContent = `Times shown in UK local time (currently ${currentLondonZoneAbbrev()})`;
 autoLoadFromRepo();
 </script>
 </body>
