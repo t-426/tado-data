@@ -6,7 +6,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>Home Climate Panel — T426</title>
+<title>Home Climate Panel — Tado Log</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
@@ -190,6 +190,27 @@
     position:relative;
     overflow:hidden;
   }
+  .card[data-series]{
+    cursor:pointer;
+    user-select:none;
+    transition:opacity .15s, border-color .15s, transform .08s;
+  }
+  .card[data-series]:hover{border-color:var(--gold);}
+  .card[data-series]:active{transform:scale(0.98);}
+  .card[data-series].series-muted{opacity:0.4;}
+  .card[data-series]::after{
+    content:'tap to toggle';
+    position:absolute;
+    top:10px;right:12px;
+    font-size:9px;
+    letter-spacing:0.04em;
+    color:var(--muted);
+    opacity:0;
+    transition:opacity .15s;
+    text-transform:uppercase;
+    font-family:'JetBrains Mono',monospace;
+  }
+  .card[data-series]:hover::after{opacity:0.7;}
   .card::before{
     content:'';
     position:absolute;top:0;left:0;right:0;height:2px;
@@ -347,17 +368,17 @@
     </div>
 
     <div class="readouts">
-      <div class="card temp">
+      <div class="card temp" data-series="temp" tabindex="0" role="button" aria-pressed="true" title="Click to show/hide temperature on the chart">
         <div class="label">Temperature — current</div>
         <div class="value" id="tempLatest">—<span class="unit">°C</span></div>
         <div class="minmax"><span>min <b id="tempMin">—</b></span><span>avg <b id="tempAvgSub">—</b></span><span>max <b id="tempMax">—</b></span></div>
       </div>
-      <div class="card hum">
+      <div class="card hum" data-series="hum" tabindex="0" role="button" aria-pressed="true" title="Click to show/hide humidity on the chart">
         <div class="label">Humidity — current</div>
         <div class="value" id="humLatest">—<span class="unit">%</span></div>
         <div class="minmax"><span>min <b id="humMin">—</b></span><span>avg <b id="humAvgSub">—</b></span><span>max <b id="humMax">—</b></span></div>
       </div>
-      <div class="card heat" id="heatCard">
+      <div class="card heat" id="heatCard" data-series="heat" tabindex="0" role="button" aria-pressed="true" title="Click to show/hide heating on the chart">
         <div class="label">Heating — current</div>
         <div class="value" id="heatState">—</div>
         <div class="minmax"><span>avg <b id="heatAvgSub">—</b></span><span>max <b id="heatMaxSub">—</b></span></div>
@@ -433,12 +454,34 @@ dropzone.addEventListener('click', () => fileInput.click());
 dropzone.addEventListener('drop', e => { if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
 fileInput.addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
 
+function toggleSeries(key){
+  seriesVisible[key] = !seriesVisible[key];
+  updateToggleUI();
+  if (lastFiltered) renderChart(lastFiltered, lastDaily);
+}
+
+function updateToggleUI(){
+  document.querySelectorAll('.legend-item[data-series]').forEach(el => {
+    el.classList.toggle('off', !seriesVisible[el.dataset.series]);
+  });
+  document.querySelectorAll('.card[data-series]').forEach(el => {
+    const on = seriesVisible[el.dataset.series];
+    el.classList.toggle('series-muted', !on);
+    el.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+}
+
 document.querySelectorAll('.legend-item[data-series]').forEach(el => {
-  el.addEventListener('click', () => {
-    const key = el.dataset.series;
-    seriesVisible[key] = !seriesVisible[key];
-    el.classList.toggle('off', !seriesVisible[key]);
-    if (lastFiltered) renderChart(lastFiltered, lastDaily);
+  el.addEventListener('click', () => toggleSeries(el.dataset.series));
+});
+
+document.querySelectorAll('.card[data-series]').forEach(el => {
+  el.addEventListener('click', () => toggleSeries(el.dataset.series));
+  el.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' '){
+      e.preventDefault();
+      toggleSeries(el.dataset.series);
+    }
   });
 });
 
