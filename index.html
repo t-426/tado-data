@@ -312,7 +312,7 @@
       <div class="sub">Room temperature &amp; humidity log — daily min / max / average readout</div>
       <div class="sub" id="tzNote" style="margin-top:2px;">Times shown in UK local time</div>
     </div>
-    <div class="status-pill"><span class="led" id="statusLed"></span><span id="statusText">loading…</span></div>
+    <div class="status-pill" style="display:none;"><span class="led" id="statusLed"></span><span id="statusText">loading…</span></div>
   </header>
 
   <div id="dropzone" style="display:none;">
@@ -333,7 +333,6 @@
         <button class="btn" data-preset="day"><span class="led"></span>Day</button>
         <button class="btn" data-preset="week"><span class="led"></span>Week</button>
         <button class="btn" data-preset="month"><span class="led"></span>Month</button>
-        <button class="btn" data-preset="quarter"><span class="led"></span>Quarter</button>
         <button class="btn" data-preset="year"><span class="led"></span>Year</button>
       </div>
       <select id="roomSelect" style="display:none;"></select>
@@ -563,7 +562,7 @@ function finishLoad(label){
   fromDateEl.removeAttribute('max');
   toDateEl.removeAttribute('max');
 
-  setPreset('week');
+  setPreset('day');
 }
 
 roomSelect.addEventListener('change', () => { currentRoom = roomSelect.value; render(); });
@@ -590,7 +589,7 @@ async function setPreset(name){
   activePreset = name;
   updatePresetButtons();
   const maxDay = rows[rows.length-1].date;      // London-date key of the latest reading
-  const days = {day:1, week:7, month:30, quarter:91, year:365}[name];
+  const days = {day:1, week:7, month:30, year:365}[name];
   const tentativeStart = addDaysKey(maxDay, -(days-1));
   await ensureYearsLoaded(tentativeStart, maxDay);
   const minDay = rows[0].date;
