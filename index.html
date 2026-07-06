@@ -308,9 +308,8 @@
 
   <header>
     <div>
-      <h1>Home Climate Panel<span> — Tado Log</span></h1>
+      <h1>Home Climate Panel</h1>
       <div class="sub">Tado home thermostat logging tool. Times shown are UK local time.</div>
-      <div class="sub" id="headerSummary" style="margin-top:2px;">Loading…</div>
     </div>
     <div class="status-pill" style="display:none;"><span class="led" id="statusLed"></span><span id="statusText">loading…</span></div>
   </header>
@@ -323,7 +322,6 @@
 
   <div class="filebar" id="filebar" style="display:flex;">
     <span id="fileMeta">Looking for data in this repo…</span>
-    <span id="lastSync" class="sync-label"></span>
   </div>
 
   <div id="app">
@@ -417,7 +415,6 @@ const dropzone = document.getElementById('dropzone');
 const fileInput = document.getElementById('fileInput');
 const filebar = document.getElementById('filebar');
 const fileMeta = document.getElementById('fileMeta');
-const lastSync = document.getElementById('lastSync');
 const appEl = document.getElementById('app');
 const statusLed = document.getElementById('statusLed');
 const statusText = document.getElementById('statusText');
@@ -518,7 +515,6 @@ async function autoLoadFromRepo(){
   appEl.style.display = 'none';
   filebar.style.display = 'flex';
   fileMeta.textContent = 'Looking for data in this repo…';
-  lastSync.textContent = '';
   statusLed.classList.remove('on');
   statusText.textContent = 'loading…';
 
@@ -533,7 +529,6 @@ async function autoLoadFromRepo(){
   if (!found || !rows.length){
     statusText.textContent = 'no repo data found';
     fileMeta.textContent = `Could not find ${thisYear}_data.csv next to this page.`;
-    document.getElementById('headerSummary').textContent = `Could not find ${thisYear}_data.csv next to this page.`;
     dropzone.style.display = 'block';
     appEl.style.display = 'none';
     return;
@@ -552,9 +547,10 @@ function finishLoad(label){
   roomSelect.style.display = rooms.length > 1 ? 'inline-block' : 'none';
   roomSelect.value = currentRoom;
 
-  fileMeta.textContent = `${label} — ${rows.length.toLocaleString()} rows, ${rooms.length} room${rooms.length>1?'s':''}`;
-  document.getElementById('headerSummary').textContent = `Data autoloaded every 30 minutes. ${rows.length.toLocaleString()} rows. Last sync ${formatLondonSync(rows[rows.length - 1].ts)}`;
-  lastSync.textContent = `Last sync ${formatLondonSync(rows[rows.length - 1].ts)}`;
+  const syncText = `Last sync ${formatLondonSync(rows[rows.length - 1].ts)}`;
+  fileMeta.textContent = dataSource === 'repo'
+    ? `Data autoloaded every 30 minutes. ${rows.length.toLocaleString()} rows. ${syncText}`
+    : `${label} — ${rows.length.toLocaleString()} rows. ${syncText}`;
   dropzone.style.display = 'none';
   filebar.style.display = 'flex';
   appEl.style.display = 'block';
