@@ -294,6 +294,11 @@
   }
   .legend-item.off{opacity:0.35;}
   .swatch{width:10px;height:2.5px;border-radius:2px;}
+  .swatch.dashed{background:none;height:0;border-top:2px dashed var(--muted);}
+  .legend-item.trend-toggle{opacity:0.5;border-left:1px solid var(--border);padding-left:14px;}
+  .legend-item.trend-toggle.trend-on{opacity:1;color:var(--text);}
+  .legend-item.trend-toggle.trend-on .swatch.dashed{border-top-color:var(--gold);}
+  .legend-item.trend-toggle.trend-disabled{opacity:0.2;cursor:default;pointer-events:none;}
   #chartCanvasWrap{height:340px;position:relative;}
 
   /* Table */
@@ -412,6 +417,9 @@
           <span class="legend-item" id="legendTemp" data-series="temp"><span class="swatch" style="background:var(--temp)"></span>Temp °C (left)</span>
           <span class="legend-item" id="legendHum" data-series="hum"><span class="swatch" style="background:var(--hum)"></span>Humidity % (right)</span>
           <span class="legend-item" id="legendHeat" data-series="heat"><span class="swatch" style="background:var(--heat)"></span>Heating (shaded)</span>
+          <span class="legend-item trend-toggle trend-disabled" id="trendToggle" title="Trend line needs at least a week of data — switch to Week view or longer">
+            <span class="swatch dashed"></span>Trend
+          </span>
         </div>
       </div>
       <div id="chartCanvasWrap"><canvas id="chart"></canvas></div>
@@ -456,6 +464,7 @@ let loadedYears = new Set();   // calendar years already fetched from the repo
 let dataSource = null;         // 'repo' | 'upload'
 let lastFiltered = null, lastDaily = null;  // cached for re-rendering the chart on legend toggle
 const seriesVisible = { temp:true, hum:true, heat:true };
+let trendEnabled = false;   // off by default; only togglable for Week view or longer
 
 const dropzone = document.getElementById('dropzone');
 const fileInput = document.getElementById('fileInput');
@@ -469,6 +478,14 @@ const roomSelect = document.getElementById('roomSelect');
 const fromDateEl = document.getElementById('fromDate');
 const toDateEl = document.getElementById('toDate');
 const emptyNote = document.getElementById('emptyNote');
+const trendToggleEl = document.getElementById('trendToggle');
+
+trendToggleEl.addEventListener('click', () => {
+  if (trendToggleEl.classList.contains('trend-disabled')) return;
+  trendEnabled = !trendEnabled;
+  trendToggleEl.classList.toggle('trend-on', trendEnabled);
+  if (lastFiltered) renderChart(lastFiltered, lastDaily);
+});
 
 dropzone.addEventListener('click', () => fileInput.click());
 ['dragover','dragenter'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.add('drag'); }));
@@ -792,6 +809,18 @@ function render(){
     };
   });
 
+  // Trend line is only meaningful with at least a week of daily averages behind it.
+  const spanDays = Math.round((new Date(rangeEnd) - new Date(rangeStart)) / 86400000) + 1;
+  const trendAllowed = spanDays >= 7;
+  trendToggleEl.classList.toggle('trend-disabled', !trendAllowed);
+  trendToggleEl.title = trendAllowed
+    ? 'Show a dashed trend line based on daily averages'
+    : 'Trend line needs at least a week of data — switch to Week view or longer';
+  if (!trendAllowed && trendEnabled){
+    trendEnabled = false;
+    trendToggleEl.classList.remove('trend-on');
+  }
+
   renderTable(daily);
   lastFiltered = filtered;
   lastDaily = daily;
@@ -847,6 +876,53 @@ const heatingShadingPlugin = {
   }
 };
 
+// Simple least-squares fit of `values` (equally spaced, index 0..n-1) plus its R²,
+// a measure of how well a straight line actually explains the data (1 = perfect line,
+// ~0 = no better than the flat average).
+function linearRegression(values){
+  const n = values.length;
+  let sumX=0, sumY=0, sumXY=0, sumXX=0;
+  for (let i=0;i<n;i++){ sumX+=i; sumY+=values[i]; sumXY+=i*values[i]; sumXX+=i*i; }
+  const denom = n*sumXX - sumX*sumX;
+  const slope = denom === 0 ? 0 : (n*sumXY - sumX*sumY)/denom;
+  const intercept = (sumY - slope*sumX)/n;
+  const meanY = sumY/n;
+  let ssTot=0, ssRes=0;
+  for (let i=0;i<n;i++){
+    const pred = intercept + slope*i;
+    ssRes += (values[i]-pred)**2;
+    ssTot += (values[i]-meanY)**2;
+  }
+  const r2 = ssTot === 0 ? 1 : 1 - ssRes/ssTot;
+  return {slope, intercept, r2};
+}
+
+// Centered moving average, used as a smoothed alternative to a straight trend line.
+function movingAverage(values, window){
+  const n = values.length;
+  const half = Math.floor(window/2);
+  return values.map((_, i) => {
+    let sum=0, count=0;
+    for (let j=Math.max(0,i-half); j<=Math.min(n-1,i+half); j++){ sum+=values[j]; count++; }
+    return sum/count;
+  });
+}
+
+// Returns one trend value per entry in `dailyValues` (per-day averages). Over a year or
+// more, if the day-to-day data is choppy rather than steadily rising/falling (low R² on
+// the best-fit line), a smoothed moving average is used instead — a straight line would
+// misrepresent data that mostly oscillates rather than trends.
+function computeTrend(dailyValues, spanDays){
+  const n = dailyValues.length;
+  if (n < 2) return null;
+  const reg = linearRegression(dailyValues);
+  if (spanDays >= 365 && reg.r2 < 0.15){
+    const window = Math.max(7, Math.round(n/12));
+    return movingAverage(dailyValues, window);
+  }
+  return dailyValues.map((_, i) => reg.intercept + reg.slope*i);
+}
+
 function renderChart(filtered, daily){
   if (typeof Chart === 'undefined'){
     document.getElementById('chartCanvasWrap').innerHTML =
@@ -872,40 +948,85 @@ function renderChart(filtered, daily){
     heatingData = filtered.map(r => r.heating);
   }
 
+  // Trend lines are always fit to daily averages (not raw readings), per-day. When the
+  // chart itself is showing raw readings (short ranges), each reading is given its
+  // day's trend value so the dashed line still lines up with the visible x-axis.
+  let tempTrendData = null, humTrendData = null;
+  const spanDaysForTrend = Math.round((new Date(rangeEnd) - new Date(rangeStart)) / 86400000) + 1;
+  if (trendEnabled && !trendToggleEl.classList.contains('trend-disabled') && daily.length >= 2){
+    const tTrendDaily = computeTrend(daily.map(d => d.tAvg), spanDaysForTrend);
+    const hTrendDaily = computeTrend(daily.map(d => d.hAvg), spanDaysForTrend);
+    if (useDaily){
+      tempTrendData = tTrendDaily;
+      humTrendData = hTrendDaily;
+    } else {
+      const dayIndexByDate = new Map(daily.map((d,i) => [d.date, i]));
+      tempTrendData = filtered.map(r => tTrendDaily[dayIndexByDate.get(r.date)]);
+      humTrendData = filtered.map(r => hTrendDaily[dayIndexByDate.get(r.date)]);
+    }
+  }
+
+  const datasets = [
+    {
+      label:'Temperature (°C)',
+      data:tempData,
+      borderColor:'#e85d42',
+      backgroundColor:'#e85d42',
+      borderWidth:2,
+      pointRadius:0,
+      pointHoverRadius:4,
+      tension:0.25,
+      yAxisID:'yTemp',
+      hidden: !seriesVisible.temp,
+    },
+    {
+      label:'Humidity (%)',
+      data:humData,
+      borderColor:'#4e8fd1',
+      backgroundColor:'#4e8fd1',
+      borderWidth:2,
+      pointRadius:0,
+      pointHoverRadius:4,
+      tension:0.25,
+      yAxisID:'yHum',
+      hidden: !seriesVisible.hum,
+    }
+  ];
+  if (tempTrendData && seriesVisible.temp){
+    datasets.push({
+      label:'Temperature trend',
+      data:tempTrendData,
+      borderColor:'#e85d42',
+      borderDash:[6,4],
+      borderWidth:1.5,
+      pointRadius:0,
+      pointHoverRadius:0,
+      tension:0.25,
+      yAxisID:'yTemp',
+      isTrend:true,
+    });
+  }
+  if (humTrendData && seriesVisible.hum){
+    datasets.push({
+      label:'Humidity trend',
+      data:humTrendData,
+      borderColor:'#4e8fd1',
+      borderDash:[6,4],
+      borderWidth:1.5,
+      pointRadius:0,
+      pointHoverRadius:0,
+      tension:0.25,
+      yAxisID:'yHum',
+      isTrend:true,
+    });
+  }
+
   const ctx = document.getElementById('chart').getContext('2d');
   if (chart) chart.destroy();
   chart = new Chart(ctx, {
     type:'line',
     plugins:[heatingShadingPlugin],
-    data:{
-      labels,
-      datasets:[
-        {
-          label:'Temperature (°C)',
-          data:tempData,
-          borderColor:'#e85d42',
-          backgroundColor:'#e85d42',
-          borderWidth:2,
-          pointRadius:0,
-          pointHoverRadius:4,
-          tension:0.25,
-          yAxisID:'yTemp',
-          hidden: !seriesVisible.temp,
-        },
-        {
-          label:'Humidity (%)',
-          data:humData,
-          borderColor:'#4e8fd1',
-          backgroundColor:'#4e8fd1',
-          borderWidth:2,
-          pointRadius:0,
-          pointHoverRadius:4,
-          tension:0.25,
-          yAxisID:'yHum',
-          hidden: !seriesVisible.hum,
-        }
-      ]
-    },
+    data:{ labels, datasets },
     options:{
       responsive:true,
       maintainAspectRatio:false,
@@ -921,6 +1042,7 @@ function renderChart(filtered, daily){
           bodyColor:'#f3ead9',
           titleFont:{family:'JetBrains Mono'},
           bodyFont:{family:'JetBrains Mono'},
+          filter: item => !item.dataset.isTrend,
           callbacks:{
             afterBody(items){
               if (!seriesVisible.heat) return [];
