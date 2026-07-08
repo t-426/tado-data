@@ -142,6 +142,10 @@
     margin-bottom:20px;
   }
   .presets{display:flex;gap:6px;flex-wrap:wrap;}
+  .preset-nav{display:flex;align-items:center;gap:6px;}
+  .nav-btn{padding:9px 12px;}
+  .nav-btn:disabled{opacity:0.3;cursor:default;border-color:var(--border);color:var(--muted);}
+  .nav-btn:disabled:hover{border-color:var(--border);color:var(--muted);}
   .btn{
     font-family:'Rajdhani',sans-serif;
     font-weight:600;
@@ -331,6 +335,7 @@
   @media (max-width:560px){
     h1{font-size:24px;}
     .custom-range{margin-left:0;width:100%;}
+    .preset-nav{width:100%;}
     .presets{width:100%;gap:6px;}
     .presets .btn{flex:1 1 0;padding-left:8px;padding-right:8px;justify-content:center;}
     .custom-range input[type=date]{flex:1 1 0;min-width:0;}
@@ -363,11 +368,15 @@
   <div id="app">
 
     <div class="controls">
-      <div class="presets" id="presets">
-        <button class="btn" data-preset="day"><span class="led"></span>Day</button>
-        <button class="btn" data-preset="week"><span class="led"></span>Week</button>
-        <button class="btn" data-preset="month"><span class="led"></span>Month</button>
-        <button class="btn" data-preset="year"><span class="led"></span>Year</button>
+      <div class="preset-nav">
+        <button class="btn nav-btn" id="presetPrev" title="Previous period" aria-label="Previous period">‹</button>
+        <div class="presets" id="presets">
+          <button class="btn" data-preset="day"><span class="led"></span>Day</button>
+          <button class="btn" data-preset="week"><span class="led"></span>Week</button>
+          <button class="btn" data-preset="month"><span class="led"></span>Month</button>
+          <button class="btn" data-preset="year"><span class="led"></span>Year</button>
+        </div>
+        <button class="btn nav-btn" id="presetNext" title="Next period" aria-label="Next period">›</button>
       </div>
       <select id="roomSelect" style="display:none;"></select>
       <div class="custom-range">
@@ -442,6 +451,7 @@ let rangeStart = null;  // Date (midnight)
 let rangeEnd = null;    // Date (midnight, inclusive day)
 let chart = null;
 let activePreset = null;
+let presetOffset = 0;    // 0 = current period; 1 = one period back, etc. (preset navigation)
 let loadedYears = new Set();   // calendar years already fetched from the repo
 let dataSource = null;         // 'repo' | 'upload'
 let lastFiltered = null, lastDaily = null;  // cached for re-rendering the chart on legend toggle
@@ -635,6 +645,7 @@ document.getElementById('presets').addEventListener('click', e => {
 document.getElementById('applyRange').addEventListener('click', async () => {
   if (!fromDateEl.value || !toDateEl.value) return;
   activePreset = null;
+  presetOffset = 0;
   updatePresetButtons();
   let start = fromDateEl.value, end = toDateEl.value;
   if (end < start) { [start, end] = [end, start]; }
@@ -643,17 +654,40 @@ document.getElementById('applyRange').addEventListener('click', async () => {
   render();
 });
 
+document.getElementById('presetPrev').addEventListener('click', () => {
+  if (!activePreset) return;
+  presetOffset++;
+  applyPresetOffset();
+});
+
+document.getElementById('presetNext').addEventListener('click', () => {
+  if (!activePreset || presetOffset === 0) return;
+  presetOffset--;
+  applyPresetOffset();
+});
+
 async function setPreset(name){
   if (!rows.length) return;
   activePreset = name;
+  presetOffset = 0;
+  await applyPresetOffset();
+}
+
+// Renders the range for the current activePreset + presetOffset — offset 0 is the
+// most recent period (ending on the latest reading), offset 1 is one period before
+// that, and so on. Used both when a preset button is first clicked and when the
+// prev/next arrows step through history.
+async function applyPresetOffset(){
+  if (!rows.length || !activePreset) return;
   updatePresetButtons();
+  const days = {day:1, week:7, month:30, year:365}[activePreset];
   const maxDay = rows[rows.length-1].date;      // London-date key of the latest reading
-  const days = {day:1, week:7, month:30, year:365}[name];
-  const tentativeStart = addDaysKey(maxDay, -(days-1));
-  await ensureYearsLoaded(tentativeStart, maxDay);
+  const periodEnd = presetOffset === 0 ? maxDay : addDaysKey(maxDay, -presetOffset*days);
+  const tentativeStart = addDaysKey(periodEnd, -(days-1));
+  await ensureYearsLoaded(tentativeStart, periodEnd);
   const minDay = rows[0].date;
   rangeStart = tentativeStart < minDay ? minDay : tentativeStart;
-  rangeEnd = maxDay;
+  rangeEnd = periodEnd;
   fromDateEl.value = rangeStart;
   toDateEl.value = rangeEnd;
   render();
@@ -663,6 +697,8 @@ function updatePresetButtons(){
   document.querySelectorAll('#presets .btn').forEach(b => {
     b.classList.toggle('active', b.dataset.preset === activePreset);
   });
+  document.getElementById('presetPrev').disabled = !activePreset;
+  document.getElementById('presetNext').disabled = !activePreset || presetOffset === 0;
 }
 
 // All calendar-day bucketing and range math is done on "YYYY-MM-DD" keys
