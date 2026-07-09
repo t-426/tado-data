@@ -236,6 +236,7 @@
   }
   .card.temp::before{background:var(--temp);}
   .card.hum::before{background:var(--hum);}
+  .card.outdoor::before{background:var(--outdoor);}
   .card .label{
     font-size:10.5px;
     letter-spacing:0.08em;
@@ -251,6 +252,7 @@
   }
   .card.temp .value{color:var(--temp);text-shadow:0 0 14px rgba(232,93,66,0.35);}
   .card.hum .value{color:var(--hum);text-shadow:0 0 14px rgba(78,143,209,0.35);}
+  .card.outdoor .value{color:var(--outdoor);text-shadow:0 0 14px rgba(92,174,92,0.35);}
   .card.heat::before{background:var(--heat);}
   .card.heat .value{color:var(--muted);}
   .card.heat.on .value{color:var(--heat);text-shadow:0 0 14px rgba(230,196,79,0.35);}
@@ -407,6 +409,11 @@
         <div class="label">Humidity — current</div>
         <div class="value" id="humLatest">—<span class="unit">%</span></div>
         <div class="minmax"><span>min <b id="humMin">—</b></span><span>avg <b id="humAvgSub">—</b></span><span>max <b id="humMax">—</b></span></div>
+      </div>
+      <div class="card outdoor" data-series="outdoor" tabindex="0" role="button" aria-pressed="true" title="Click to show/hide outdoor temperature on the chart">
+        <div class="label">Outdoor — current</div>
+        <div class="value" id="outdoorLatest">—<span class="unit">°C</span></div>
+        <div class="minmax"><span>min <b id="outdoorMin">—</b></span><span>avg <b id="outdoorAvgSub">—</b></span><span>max <b id="outdoorMax">—</b></span></div>
       </div>
       <div class="card heat" id="heatCard" data-series="heat" tabindex="0" role="button" aria-pressed="true" title="Click to show/hide heating on the chart">
         <div class="label">Heating — current</div>
@@ -773,6 +780,22 @@ function render(){
   document.getElementById('humMin').textContent = round1(Math.min(...hums)) + '%';
   document.getElementById('humAvgSub').textContent = round1(hums.reduce((a,b)=>a+b,0)/hums.length) + '%';
   document.getElementById('humMax').textContent = round1(Math.max(...hums)) + '%';
+
+  const outdoorLatestEl = document.getElementById('outdoorLatest');
+  const outdoorMinEl = document.getElementById('outdoorMin');
+  const outdoorAvgSubEl = document.getElementById('outdoorAvgSub');
+  const outdoorMaxEl = document.getElementById('outdoorMax');
+  const outdoorsAll = filtered.map(r=>r.outdoorTemp).filter(v => v != null);
+  outdoorLatestEl.innerHTML = (latest.outdoorTemp == null ? '—' : round1(latest.outdoorTemp)) + '<span class="unit">°C</span>';
+  if (outdoorsAll.length){
+    outdoorMinEl.textContent = round1(Math.min(...outdoorsAll)) + '°';
+    outdoorAvgSubEl.textContent = round1(outdoorsAll.reduce((a,b)=>a+b,0)/outdoorsAll.length) + '°';
+    outdoorMaxEl.textContent = round1(Math.max(...outdoorsAll)) + '°';
+  } else {
+    outdoorMinEl.textContent = '—';
+    outdoorAvgSubEl.textContent = '—';
+    outdoorMaxEl.textContent = '—';
+  }
 
   const heatCardEl = document.getElementById('heatCard');
   const heatStateEl = document.getElementById('heatState');
