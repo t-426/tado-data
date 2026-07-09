@@ -341,6 +341,7 @@
   tr:hover td{background:rgba(201,162,75,0.05);}
   td.t{color:var(--temp);}
   td.h{color:var(--hum);}
+  td.o{color:var(--outdoor);}
 
   .empty-note{color:var(--muted);font-size:12px;text-align:center;padding:30px 0;font-family:'JetBrains Mono',monospace;}
 
@@ -451,6 +452,9 @@
               <th>Hum min</th>
               <th>Hum avg</th>
               <th>Hum max</th>
+              <th>Outdoor min</th>
+              <th>Outdoor avg</th>
+              <th>Outdoor max</th>
             </tr>
           </thead>
           <tbody id="tableBody"></tbody>
@@ -837,7 +841,9 @@ function render(){
       tMin: Math.min(...temps), tMax: Math.max(...temps), tAvg: temps.reduce((a,b)=>a+b,0)/temps.length,
       hMin: Math.min(...hums), hMax: Math.max(...hums), hAvg: hums.reduce((a,b)=>a+b,0)/hums.length,
       heatAvg: heats.length ? heats.reduce((a,b)=>a+b,0)/heats.length : null,
+      outdoorMin: outdoors.length ? Math.min(...outdoors) : null,
       outdoorAvg: outdoors.length ? outdoors.reduce((a,b)=>a+b,0)/outdoors.length : null,
+      outdoorMax: outdoors.length ? Math.max(...outdoors) : null,
     };
   });
 
@@ -870,6 +876,9 @@ function renderTable(daily){
       <td class="h">${round1(d.hMin)}</td>
       <td class="h">${round1(d.hAvg)}</td>
       <td class="h">${round1(d.hMax)}</td>
+      <td class="o">${d.outdoorMin == null ? '—' : round1(d.outdoorMin)}</td>
+      <td class="o">${d.outdoorAvg == null ? '—' : round1(d.outdoorAvg)}</td>
+      <td class="o">${d.outdoorMax == null ? '—' : round1(d.outdoorMax)}</td>
     </tr>`).join('');
 }
 
