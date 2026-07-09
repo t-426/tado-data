@@ -30,6 +30,7 @@
     --temp:#e85d42;
     --hum:#4e8fd1;
     --heat:#e6c44f;
+    --outdoor:#5cae5c;
     --gold:#c9a24b;
     --grid: rgba(243,234,217,0.07);
   }
@@ -417,6 +418,7 @@
           <span class="legend-item" id="legendTemp" data-series="temp"><span class="swatch" style="background:var(--temp)"></span>Temp °C (left)</span>
           <span class="legend-item" id="legendHum" data-series="hum"><span class="swatch" style="background:var(--hum)"></span>Humidity % (right)</span>
           <span class="legend-item" id="legendHeat" data-series="heat"><span class="swatch" style="background:var(--heat)"></span>Heating (shaded)</span>
+          <span class="legend-item" id="legendOutdoor" data-series="outdoor"><span class="swatch" style="background:var(--outdoor)"></span>Outdoor °C</span>
           <span class="legend-item trend-toggle trend-disabled" id="trendToggle" title="Trend line needs at least a week of data — switch to Week view or longer">
             <span class="swatch dashed"></span>Trend
           </span>
@@ -463,7 +465,7 @@ let presetOffset = 0;    // 0 = current period; 1 = one period back, etc. (prese
 let loadedYears = new Set();   // calendar years already fetched from the repo
 let dataSource = null;         // 'repo' | 'upload'
 let lastFiltered = null, lastDaily = null;  // cached for re-rendering the chart on legend toggle
-const seriesVisible = { temp:true, hum:true, heat:true };
+const seriesVisible = { temp:true, hum:true, heat:true, outdoor:true };
 let trendEnabled = false;   // off by default; only togglable for Week view or longer
 
 const dropzone = document.getElementById('dropzone');
@@ -561,7 +563,8 @@ function addParsedRows(data){
     const dateKey = toDateKey(ts);
     const room = r.room || 'Home';
     const heating = (r.heating_pct === '' || r.heating_pct == null || isNaN(r.heating_pct)) ? null : Number(r.heating_pct);
-    rows.push({date:dateKey, room, ts, temp:Number(r.temperature_c), hum:Number(r.humidity_pct), heating});
+    const outdoorTemp = (r.outdoor_temp_c === '' || r.outdoor_temp_c == null || isNaN(r.outdoor_temp_c)) ? null : Number(r.outdoor_temp_c);
+    rows.push({date:dateKey, room, ts, temp:Number(r.temperature_c), hum:Number(r.humidity_pct), heating, outdoorTemp});
   }
 }
 
@@ -793,19 +796,21 @@ function render(){
   // daily aggregates (for table, always; for chart when range is long)
   const byDay = new Map();
   for (const r of filtered){
-    if (!byDay.has(r.date)) byDay.set(r.date, {temps:[], hums:[], heats:[]});
+    if (!byDay.has(r.date)) byDay.set(r.date, {temps:[], hums:[], heats:[], outdoors:[]});
     byDay.get(r.date).temps.push(r.temp);
     byDay.get(r.date).hums.push(r.hum);
     if (r.heating != null) byDay.get(r.date).heats.push(r.heating);
+    if (r.outdoorTemp != null) byDay.get(r.date).outdoors.push(r.outdoorTemp);
   }
   const dayKeys = [...byDay.keys()].sort();
   const daily = dayKeys.map(date => {
-    const {temps, hums, heats} = byDay.get(date);
+    const {temps, hums, heats, outdoors} = byDay.get(date);
     return {
       date,
       tMin: Math.min(...temps), tMax: Math.max(...temps), tAvg: temps.reduce((a,b)=>a+b,0)/temps.length,
       hMin: Math.min(...hums), hMax: Math.max(...hums), hAvg: hums.reduce((a,b)=>a+b,0)/hums.length,
       heatAvg: heats.length ? heats.reduce((a,b)=>a+b,0)/heats.length : null,
+      outdoorAvg: outdoors.length ? outdoors.reduce((a,b)=>a+b,0)/outdoors.length : null,
     };
   });
 
@@ -935,17 +940,19 @@ function renderChart(filtered, daily){
     ? `${currentRoom} Daily Average Chart`
     : `${currentRoom} Readings Chart`;
 
-  let labels, tempData, humData, heatingData;
+  let labels, tempData, humData, heatingData, outdoorData;
   if (useDaily){
     labels = daily.map(d => d.date);
     tempData = daily.map(d => round1(d.tAvg));
     humData = daily.map(d => round1(d.hAvg));
     heatingData = daily.map(d => d.heatAvg);
+    outdoorData = daily.map(d => d.outdoorAvg == null ? null : round1(d.outdoorAvg));
   } else {
     labels = filtered.map(r => formatLondonDateTime(r.ts));
     tempData = filtered.map(r => r.temp);
     humData = filtered.map(r => r.hum);
     heatingData = filtered.map(r => r.heating);
+    outdoorData = filtered.map(r => r.outdoorTemp);
   }
 
   // Trend lines are always fit to daily averages (not raw readings), per-day. When the
@@ -990,6 +997,20 @@ function renderChart(filtered, daily){
       tension:0.25,
       yAxisID:'yHum',
       hidden: !seriesVisible.hum,
+    },
+    {
+      label:'Outdoor Temp (°C)',
+      data:outdoorData,
+      borderColor:'#5cae5c',
+      backgroundColor:'#5cae5c',
+      borderWidth:2,
+      borderDash:[4,3],
+      pointRadius:0,
+      pointHoverRadius:4,
+      tension:0.25,
+      yAxisID:'yTemp',
+      spanGaps:true,
+      hidden: !seriesVisible.outdoor,
     }
   ];
   if (tempTrendData && seriesVisible.temp){
