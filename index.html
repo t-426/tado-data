@@ -303,7 +303,7 @@
   .legend-item.off{opacity:0.35;}
   .swatch{width:10px;height:2.5px;border-radius:2px;}
   .swatch.dashed{background:none;height:0;border-top:2px dashed var(--muted);}
-  .legend-item.trend-toggle{opacity:0.5;border-left:1px solid var(--border);padding-left:14px;}
+  .legend-item.trend-toggle{opacity:0.5;}
   .legend-item.trend-toggle.trend-on{opacity:1;color:var(--text);}
   .legend-item.trend-toggle.trend-on .swatch.dashed{border-top-color:var(--gold);}
   .legend-item.trend-toggle.trend-disabled{opacity:0.2;cursor:default;pointer-events:none;}
@@ -353,8 +353,7 @@
     .presets{width:100%;gap:6px;}
     .presets .btn{flex:1 1 0;padding-left:8px;padding-right:8px;justify-content:center;}
     .custom-range input[type=date]{flex:1 1 0;min-width:0;}
-    .custom-range #applyRange{flex:1 1 0;justify-content:center;}
-  }
+    }
 </style>
 </head>
 <body>
@@ -397,7 +396,6 @@
         <input type="date" id="fromDate">
         <span class="to">to</span>
         <input type="date" id="toDate">
-        <button class="btn" id="applyRange">Apply</button>
       </div>
     </div>
 
@@ -428,10 +426,6 @@
       <div class="chart-head">
         <div class="chart-title" id="chartTitle">Readings</div>
         <div>
-          <span class="legend-item" id="legendTemp" data-series="temp"><span class="swatch" style="background:var(--temp)"></span>Temp °C (left)</span>
-          <span class="legend-item" id="legendHum" data-series="hum"><span class="swatch" style="background:var(--hum)"></span>Humidity % (right)</span>
-          <span class="legend-item" id="legendHeat" data-series="heat"><span class="swatch" style="background:var(--heat)"></span>Heating (shaded)</span>
-          <span class="legend-item" id="legendOutdoor" data-series="outdoor"><span class="swatch" style="background:var(--outdoor)"></span>Outdoor °C</span>
           <span class="legend-item trend-toggle trend-disabled" id="trendToggle" title="Trend line needs at least a week of data — switch to Week view or longer">
             <span class="swatch dashed"></span>Trend
           </span>
@@ -518,19 +512,12 @@ function toggleSeries(key){
 }
 
 function updateToggleUI(){
-  document.querySelectorAll('.legend-item[data-series]').forEach(el => {
-    el.classList.toggle('off', !seriesVisible[el.dataset.series]);
-  });
   document.querySelectorAll('.card[data-series]').forEach(el => {
     const on = seriesVisible[el.dataset.series];
     el.classList.toggle('series-muted', !on);
     el.setAttribute('aria-pressed', on ? 'true' : 'false');
   });
 }
-
-document.querySelectorAll('.legend-item[data-series]').forEach(el => {
-  el.addEventListener('click', () => toggleSeries(el.dataset.series));
-});
 
 document.querySelectorAll('.card[data-series]').forEach(el => {
   el.addEventListener('click', () => toggleSeries(el.dataset.series));
@@ -678,7 +665,7 @@ document.getElementById('presets').addEventListener('click', e => {
   setPreset(btn.dataset.preset);
 });
 
-document.getElementById('applyRange').addEventListener('click', async () => {
+async function applyCustomRange(){
   if (!fromDateEl.value || !toDateEl.value) return;
   activePreset = null;
   presetOffset = 0;
@@ -688,7 +675,10 @@ document.getElementById('applyRange').addEventListener('click', async () => {
   await ensureYearsLoaded(start, end);
   rangeStart = start; rangeEnd = end;
   render();
-});
+}
+
+fromDateEl.addEventListener('change', applyCustomRange);
+toDateEl.addEventListener('change', applyCustomRange);
 
 document.getElementById('presetPrev').addEventListener('click', () => {
   if (!activePreset) return;
@@ -1119,13 +1109,13 @@ function renderChart(filtered, daily){
           position:'left',
           ticks:{color:'#e85d42', font:{family:'JetBrains Mono', size:10}},
           grid:{color:'rgba(243,234,217,0.07)'},
-          title:{display:true, text:'°C', color:'#e85d42', font:{family:'Rajdhani'}}
+          title:{display:true, text:'Temp (°C)', color:'#e85d42', font:{family:'Rajdhani'}}
         },
         yHum:{
           position:'right',
           ticks:{color:'#4e8fd1', font:{family:'JetBrains Mono', size:10}},
           grid:{drawOnChartArea:false},
-          title:{display:true, text:'%', color:'#4e8fd1', font:{family:'Rajdhani'}}
+          title:{display:true, text:'Humidity (%)', color:'#4e8fd1', font:{family:'Rajdhani'}}
         }
       }
     }
