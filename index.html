@@ -358,6 +358,99 @@
 
   .empty-note{color:var(--muted);font-size:12px;text-align:center;padding:30px 0;font-family:'JetBrains Mono',monospace;}
 
+  /* Comfort & Humidity */
+  .comfort-panel{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:16px;
+    margin-bottom:20px;
+  }
+  .comfort-panel h2{
+    font-family:'Rajdhani',sans-serif;
+    font-size:15px;
+    font-weight:600;
+    letter-spacing:0.03em;
+    text-transform:uppercase;
+    color:var(--muted);
+    margin:0 0 14px;
+  }
+  .comfort-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+    gap:14px;
+  }
+  .comfort-card{
+    background:var(--panel-2);
+    border:1px solid var(--border);
+    border-radius:9px;
+    padding:14px 16px;
+  }
+  .comfort-label{
+    font-size:10.5px;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+    color:var(--muted);
+    margin-bottom:8px;
+  }
+  .comfort-label .comfort-band{text-transform:none;letter-spacing:0;opacity:0.75;}
+  .comfort-value{
+    font-family:'JetBrains Mono',monospace;
+    font-weight:700;
+    font-size:26px;
+    line-height:1;
+    margin-bottom:10px;
+  }
+  .comfort-bar{
+    height:6px;
+    background:var(--border);
+    border-radius:3px;
+    overflow:hidden;
+    margin-bottom:10px;
+  }
+  .comfort-bar-fill{
+    height:100%;
+    background:var(--outdoor);
+    border-radius:3px;
+    transition:width .3s;
+  }
+  .comfort-breakdown{
+    display:flex;
+    flex-direction:column;
+    gap:4px;
+    font-size:11px;
+    color:var(--muted);
+    font-family:'JetBrains Mono',monospace;
+  }
+  .comfort-breakdown b{color:var(--text);font-weight:600;}
+  .comfort-breakdown span{display:flex;justify-content:space-between;gap:8px;}
+  .risk-badge{
+    display:inline-block;
+    padding:3px 10px;
+    border-radius:5px;
+  }
+  .risk-badge.risk-low{background:rgba(92,174,92,0.18);color:var(--outdoor);}
+  .risk-badge.risk-moderate{background:rgba(230,196,79,0.18);color:var(--heat);}
+  .risk-badge.risk-high{background:rgba(232,93,66,0.18);color:var(--temp);}
+  .spike-list{
+    display:flex;
+    flex-direction:column;
+    gap:5px;
+    font-size:11px;
+    font-family:'JetBrains Mono',monospace;
+    max-height:110px;
+    overflow-y:auto;
+    scrollbar-width:thin;
+    scrollbar-color:var(--gold) var(--panel-2);
+  }
+  .spike-list::-webkit-scrollbar{width:8px;}
+  .spike-list::-webkit-scrollbar-track{background:var(--panel-2);}
+  .spike-list::-webkit-scrollbar-thumb{background:var(--gold);border-radius:6px;}
+  .spike-row{display:flex;justify-content:space-between;gap:8px;color:var(--muted);}
+  .spike-row .spike-rise{color:var(--hum);font-weight:600;}
+  .spike-row .spike-hum{color:var(--text);}
+  .spike-empty{color:var(--muted);font-style:italic;}
+
   @media (max-width:560px){
     h1{font-size:24px;}
     .custom-range{margin-left:0;width:100%;}
@@ -444,6 +537,36 @@
         </div>
       </div>
       <div id="chartCanvasWrap"><canvas id="chart"></canvas></div>
+    </div>
+
+    <div class="comfort-panel">
+      <h2>Comfort &amp; Humidity</h2>
+      <div class="comfort-grid">
+        <div class="comfort-card">
+          <div class="comfort-label">Time in comfort band <span class="comfort-band">(18–22°C)</span></div>
+          <div class="comfort-value" id="comfortPct">—%</div>
+          <div class="comfort-bar"><div class="comfort-bar-fill" id="comfortBarFill" style="width:0%;"></div></div>
+          <div class="comfort-breakdown">
+            <span>Too cold <b id="comfortColdPct">—%</b></span>
+            <span>In band <b id="comfortInPct">—%</b></span>
+            <span>Too warm <b id="comfortWarmPct">—%</b></span>
+          </div>
+        </div>
+        <div class="comfort-card">
+          <div class="comfort-label">Condensation / mould risk</div>
+          <div class="comfort-value"><span class="risk-badge" id="riskBadge">—</span></div>
+          <div class="comfort-breakdown">
+            <span>Time ≥70% RH <b id="riskModeratePct">—%</b></span>
+            <span>Time ≥80% RH <b id="riskHighPct">—%</b></span>
+            <span>Longest spell ≥70% <b id="riskStreak">—</b></span>
+          </div>
+        </div>
+        <div class="comfort-card">
+          <div class="comfort-label">Humidity spikes <span class="comfort-band">(≥8pp in one reading)</span></div>
+          <div class="comfort-value" id="spikeCount">—</div>
+          <div class="spike-list" id="spikeList"></div>
+        </div>
+      </div>
     </div>
 
     <div class="table-panel">
@@ -769,6 +892,7 @@ function render(){
 
   emptyNote.style.display = filtered.length ? 'none' : 'block';
   document.querySelector('.chart-panel').style.display = filtered.length ? 'block' : 'none';
+  document.querySelector('.comfort-panel').style.display = filtered.length ? 'block' : 'none';
   document.querySelector('.table-panel').style.display = filtered.length ? 'block' : 'none';
   document.querySelector('.readouts').style.display = filtered.length ? 'grid' : 'none';
   if (!filtered.length) return;
@@ -863,9 +987,87 @@ function render(){
   }
 
   renderTable(daily);
+  renderComfort(filtered);
   lastFiltered = filtered;
   lastDaily = daily;
   renderChart(filtered, daily);
+}
+
+// --- Comfort & Humidity insights ---
+const COMFORT_MIN = 18, COMFORT_MAX = 22;   // "comfortable" indoor temperature band
+const RH_MODERATE = 70, RH_HIGH = 80;       // relative-humidity thresholds for condensation/mould risk
+const SPIKE_THRESHOLD = 8;                  // percentage-point rise between consecutive readings counted as a "spike"
+
+function renderComfort(filtered){
+  const n = filtered.length;
+
+  // Time in comfort band — each reading represents an equal ~30-min slice, so
+  // the % of readings in-band is a good proxy for % of time in-band.
+  let cold = 0, inBand = 0, warm = 0;
+  for (const r of filtered){
+    if (r.temp < COMFORT_MIN) cold++;
+    else if (r.temp > COMFORT_MAX) warm++;
+    else inBand++;
+  }
+  const coldPct = cold / n * 100, inPct = inBand / n * 100, warmPct = warm / n * 100;
+  document.getElementById('comfortPct').textContent = round1(inPct) + '%';
+  document.getElementById('comfortBarFill').style.width = Math.max(0, Math.min(100, inPct)) + '%';
+  document.getElementById('comfortColdPct').textContent = round1(coldPct) + '%';
+  document.getElementById('comfortInPct').textContent = round1(inPct) + '%';
+  document.getElementById('comfortWarmPct').textContent = round1(warmPct) + '%';
+
+  // Condensation/mould risk — sustained high relative humidity is the main driver,
+  // so track both the overall proportion of time above each threshold and the
+  // longest unbroken spell at/above the moderate threshold.
+  let modCount = 0, highCount = 0, curStreak = 0, maxStreak = 0;
+  for (const r of filtered){
+    if (r.hum >= RH_MODERATE) modCount++;
+    if (r.hum >= RH_HIGH) highCount++;
+    if (r.hum >= RH_MODERATE){ curStreak++; maxStreak = Math.max(maxStreak, curStreak); }
+    else curStreak = 0;
+  }
+  const modPct = modCount / n * 100, highPct = highCount / n * 100;
+  const streakHours = maxStreak * 0.5; // readings are ~30 min apart
+
+  let riskLevel = 'Low', riskClass = 'low';
+  if (highPct > 5 || streakHours >= 6){ riskLevel = 'High'; riskClass = 'high'; }
+  else if (modPct > 15 || streakHours >= 2){ riskLevel = 'Moderate'; riskClass = 'moderate'; }
+
+  const badgeEl = document.getElementById('riskBadge');
+  badgeEl.textContent = riskLevel;
+  badgeEl.className = 'risk-badge risk-' + riskClass;
+  document.getElementById('riskModeratePct').textContent = round1(modPct) + '%';
+  document.getElementById('riskHighPct').textContent = round1(highPct) + '%';
+  document.getElementById('riskStreak').textContent = maxStreak === 0
+    ? '—'
+    : (streakHours >= 1 ? round1(streakHours) + 'h' : Math.round(maxStreak * 30) + 'm');
+
+  // Humidity spikes — a sharp rise between consecutive readings (roughly one
+  // sample interval apart) often lines up with cooking, showering, or drying
+  // laundry. Only compare readings that are genuinely consecutive (skip gaps
+  // from missing data) so a data outage isn't mistaken for a spike.
+  const spikes = [];
+  for (let i = 1; i < filtered.length; i++){
+    const prev = filtered[i - 1], cur = filtered[i];
+    const gapMin = (cur.ts - prev.ts) / 60000;
+    if (gapMin > 0 && gapMin <= 45){
+      const rise = cur.hum - prev.hum;
+      if (rise >= SPIKE_THRESHOLD) spikes.push({ts: cur.ts, rise, hum: cur.hum});
+    }
+  }
+  document.getElementById('spikeCount').textContent = spikes.length;
+  const spikeListEl = document.getElementById('spikeList');
+  if (spikes.length){
+    const top = spikes.slice().sort((a, b) => b.rise - a.rise).slice(0, 6);
+    spikeListEl.innerHTML = top.map(s => `
+      <div class="spike-row">
+        <span>${formatLondonDateTime(s.ts)}</span>
+        <span class="spike-rise">+${round1(s.rise)}pp</span>
+        <span class="spike-hum">→ ${round1(s.hum)}%</span>
+      </div>`).join('');
+  } else {
+    spikeListEl.innerHTML = '<div class="spike-empty">No spikes detected in this period</div>';
+  }
 }
 
 function renderTable(daily){
